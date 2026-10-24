@@ -7,6 +7,9 @@
 #                       controller script (parallel modes). Built offline (b/build.sh), not yet run on the devices.
 #   forcelink capture   Force stock; Live III on MPC 3.10 with its own controller, controller traffic logged.
 #   forcelink status | install
+#   forcelink addins    install the setup-switch addins on both devices (persistent: MPC loads them at every start)
+#                       and write switch.conf (fresh token, each side's peer). Then on either device: hold SHIFT + MENU
+#                       until MENU blinks, press MENU: both switch between stock and B (docs/DEVICE_SWITCH.md).
 #   forcelink probe <hex bytes>   send bytes to the Live III controller (version A only), e.g. LED mapping
 # Hosts come from hosts.conf next to this script (FORCE=<ip>, LIVE3=<ip>); keep it out of any repo.
 # Every switch restarts MPC where it changes something, which closes the open project.
@@ -41,7 +44,25 @@ a|on)    f 'sh /data/forcelink/link.sh a' && l "sh $L3/link.sh a" ;;
 b)       f 'sh /data/forcelink/link.sh b' && l "sh $L3/link.sh b" ;;
 stock|off) l "sh $L3/link.sh stock" || true; f 'sh /data/forcelink/link.sh stock' ;;
 capture) l "sh $L3/link.sh capture" || true; f 'sh /data/forcelink/link.sh stock' ;;
+addins)
+    tok=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    st=$(mktemp -d)
+    for side in live3 force; do
+        mkdir -p "$st/$side"
+        cp "$H/addin/installer/install.sh" "$H/addin/installer/uninstall.sh" "$H/addin/installer/addin-lib.sh" \
+           "$H/addin/$side/addin.manifest" "$H/addin/$side/mpc-plugin.json" "$st/$side/"
+    done
+    cp "$H/a/forcespoof.so" "$st/live3/"
+    cp "$H/../force-link/forcelink-switch.so" "$st/force/"
+    printf 'token=%s\npeer=%s\nscript=%s/link.sh\n' "$tok" "$FORCE" "$L3" > "$st/live3/switch.conf"
+    printf 'token=%s\npeer=%s\nscript=/data/forcelink/link.sh\n' "$tok" "$LIVE3" > "$st/force/switch.conf"
+    scp -q -r -o BatchMode=yes "$st/force" root@$FORCE:/tmp/forcelink-addin
+    f "cd /tmp/forcelink-addin && mv switch.conf /data/forcelink/switch.conf && sh install.sh -y -n && rm -rf /tmp/forcelink-addin"
+    scp -q -r -o BatchMode=yes "$st/live3" root@$LIVE3:/tmp/forcelink-addin
+    l "cd /tmp/forcelink-addin && mv switch.conf $L3/switch.conf && sh install.sh -y -n -t $L3 && rm -rf /tmp/forcelink-addin"
+    rm -rf "$st"
+    echo "addins installed; they load at MPC's next start (next switch or reboot)" ;;
 probe)   shift; l "echo 'pub $*' > /tmp/l3probe" ;;
 status)  echo "== Force"; f 'sh /data/forcelink/link.sh status'; echo "== Live III"; l "sh $L3/link.sh status" ;;
-*) echo "usage: $0 stock|a|b|capture|status|install|probe <hex>"; exit 2 ;;
+*) echo "usage: $0 stock|a|b|capture|status|install|addins|probe <hex>"; exit 2 ;;
 esac

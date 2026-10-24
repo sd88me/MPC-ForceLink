@@ -16,8 +16,13 @@ start() {   # start <daemon> [args]
     echo "Force: $1 $(pidof "$1" || echo FAILED), acvs $(systemctl is-active acvs || true)"; cat /tmp/forcelink.log
 }
 case "${1:-status}" in
+switch)   # from the SHIFT + MENU setup switch (addin, flsurf): only acts if the setup differs
+    case "${2:-}" in stock|b) ;; *) echo "usage: $0 switch stock|b"; exit 2 ;; esac
+    now=$([ -n "$(pidof flsurf || true)" ] && echo b || echo stock)
+    [ "$now" = "$2" ] && { echo "already $2"; exit 0; }
+    exec sh "$0" "$2" ;;
 a|on)  start flnet ;;
-b)     start flsurf "$K/handshake.syx" ;;
+b)     if [ -f "$K/switch.conf" ]; then start flsurf -s "$K/switch.conf" "$K/handshake.syx"; else start flsurf "$K/handshake.syx"; fi ;;
 stock|off)
     daemons_off
     systemctl start acvs
@@ -25,5 +30,5 @@ stock|off)
 status)
     echo "flnet: $(pidof flnet || echo off), flsurf: $(pidof flsurf || echo off), acvs: $(systemctl is-active acvs || true)"
     grep -E "client|blocked|flsurf" /tmp/forcelink.log 2>/dev/null | tail -n 4 || true ;;
-*) echo "usage: $0 a|b|stock|status"; exit 2 ;;
+*) echo "usage: $0 a|b|stock|status|switch stock|b"; exit 2 ;;
 esac

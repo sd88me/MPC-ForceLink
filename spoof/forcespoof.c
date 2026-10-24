@@ -964,6 +964,127 @@ static void b_start(void)
 		pthread_detach(t);
 }
 
+/* ---- Setup switch: hold SHIFT + MENU, then MENU again (docs/DEVICE_SWITCH.md) ----------------------------------
+ * Watches the Live III's own Private port in every setup (stock and B), blinks MENU while armed, tells the Force
+ * (switch.conf peer) and runs link.sh detached. Inert without switch.conf. */
+#include "../force-link/combo.h"
+#include "../force-link/flswitch.h"
+#define L3_SHIFT 0x31
+#define L3_MENU 0x7b
+
+static flsw_t sw;
+static combo_t sw_combo;
+static pthread_mutex_t sw_mtx = PTHREAD_MUTEX_INITIALIZER;
+static snd_rawmidi_t *volatile sw_in, *volatile sw_out;   /* the Live III's own Private port, as MPC opened it */
+static volatile int sw_ready, sw_armed, sw_menu_led = 1;           /* MENU LED value MPC last wrote, restored on cancel */
+
+static uint32_t now_ms(void)
+{
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (uint32_t)(t.tv_sec * 1000u + t.tv_nsec / 1000000u);
+}
+
+static void sw_led(int v)
+{
+	static ssize_t (*wr)(snd_rawmidi_t *, const void *, size_t);
+	if (!wr)
+		wr = next_sym("snd_rawmidi_write");
+	snd_rawmidi_t *o = sw_out;
+	unsigned char m[3] = {0xB0, L3_MENU, (unsigned char)v};
+	if (o)
+		wr(o, m, 3);
+}
+
+static void sw_action(int r)
+{
+	if (r == COMBO_ARMED) {
+		sw_armed = 1;
+		note("switch", "armed: press MENU to switch");
+	} else if (r == COMBO_CANCEL) {
+		sw_armed = 0;
+		sw_led(sw_menu_led);
+		note("switch", "cancelled");
+	} else if (r == COMBO_SWITCH) {
+		sw_armed = 0;
+		const char *to = b_on() ? "stock" : "b";
+		note(flsw_tell_peer(&sw, to) ? "switch: the Force did not answer, switching here only to" :
+					      "switch: the Force is switching too, to", to);
+		sw_led(3);
+		flsw_run_local(&sw, to);
+	}
+}
+
+static void *sw_thread(void *arg)
+{
+	(void)arg;
+	for (unsigned i = 0;; i++) {
+		usleep(100000);
+		pthread_mutex_lock(&sw_mtx);
+		int r = combo_tick(&sw_combo, now_ms());
+		pthread_mutex_unlock(&sw_mtx);
+		if (r)
+			sw_action(r);
+		if (sw_armed && (i & 1) == 0)
+			sw_led((i & 2) ? 3 : 0);       /* blink ~2.5 Hz while armed */
+	}
+	return NULL;
+}
+
+static void sw_start(void)
+{
+	static int once;
+	if (once)
+		return;
+	once = 1;
+	if (flsw_load(&sw, BRIDGE_DIR "switch.conf"))
+		return;                            /* not configured: no combo, no listener */
+	combo_init(&sw_combo, L3_SHIFT, L3_MENU);
+	sw_ready = 1;
+	flsw_listen(&sw);
+	pthread_t t;
+	if (pthread_create(&t, NULL, sw_thread, NULL) == 0)
+		pthread_detach(t);
+	note("switch", "ready: hold SHIFT + MENU, then press MENU");
+}
+
+/* note on/off from the Live III's Private input (running status kept across reads) */
+static void sw_feed(const unsigned char *b, ssize_t n)
+{
+	static unsigned char st, d[2];
+	static int k;
+	for (ssize_t i = 0; i < n; i++) {
+		unsigned char c = b[i];
+		if (c >= 0xF8)
+			continue;                      /* realtime */
+		if (c & 0x80) {
+			st = c < 0xF0 ? c : 0;
+			k = 0;
+			continue;
+		}
+		if ((st & 0xE0) != 0x80)           /* only note on (9x) / off (8x) */
+			continue;
+		d[k++] = c;
+		if (k < 2)
+			continue;
+		k = 0;
+		int down = (st & 0xF0) == 0x90 && d[1] > 0, button = (st & 0x0F) == 0;
+		pthread_mutex_lock(&sw_mtx);
+		int r = combo_event(&sw_combo, d[0], down, button, now_ms());
+		pthread_mutex_unlock(&sw_mtx);
+		if (r)
+			sw_action(r);
+	}
+}
+
+/* MPC's own writes to the Private port: remember the MENU LED value */
+static void sw_watch_led(const unsigned char *b, ssize_t n)
+{
+	for (ssize_t i = 0; i + 2 < n; i++)
+		if (b[i] == 0xB0 && b[i + 1] == L3_MENU && b[i + 2] < 0x80)
+			sw_menu_led = b[i + 2];
+}
+
 int snd_rawmidi_open(snd_rawmidi_t **in, snd_rawmidi_t **out, const char *name, int mode)
 {
 	static int (*real)(snd_rawmidi_t **, snd_rawmidi_t **, const char *, int);
@@ -973,7 +1094,12 @@ int snd_rawmidi_open(snd_rawmidi_t **in, snd_rawmidi_t **out, const char *name, 
 	if (r < 0)
 		return r;
 	b_start();                                  /* version B: the Force Link port (b.conf) */
+	sw_start();
 	if (!read_host()) {
+		if (sw_ready && port_kind(out && *out ? *out : *in) == 1) {
+			if (in && *in) sw_in = *in;
+			if (out && *out) sw_out = *out;
+		}
 		if (tap_on()) {
 			int k = port_kind(out && *out ? *out : *in);
 			if (k >= 0) {
@@ -1010,6 +1136,8 @@ int snd_rawmidi_close(snd_rawmidi_t *h)
 	static int (*real)(snd_rawmidi_t *);
 	if (!real)
 		real = next_sym("snd_rawmidi_close");
+	if (h == sw_in) sw_in = NULL;
+	if (h == sw_out) sw_out = NULL;
 	fake_t *f = as_fake(h);
 	if (!f)
 		return real(h);
@@ -1037,6 +1165,8 @@ ssize_t snd_rawmidi_read(snd_rawmidi_t *h, void *buf, size_t n)
 	if (!f) {
 		ssize_t r = real(h, buf, n);
 		int k;
+		if (r > 0 && h == sw_in)
+			sw_feed(buf, r);
 		if (r > 0 && tap_on() && (k = tapped_as(h)) >= 0)
 			tlog(k, "ctl>MPC", buf, r);
 		return r;
@@ -1054,6 +1184,8 @@ ssize_t snd_rawmidi_write(snd_rawmidi_t *h, const void *buf, size_t n)
 	if (!f) {
 		ssize_t r = real(h, buf, n);
 		int k;
+		if (r > 0 && h == sw_out)
+			sw_watch_led(buf, r);
 		if (r > 0 && tap_on() && (k = tapped_as(h)) >= 0)
 			tlog(k, "MPC>ctl", buf, r);
 		return r;

@@ -12,6 +12,8 @@ force-link/flnet
 force-link/flsurf
 force-link/flsurf_test
 force-link/forcelink
+force-link/combo_test
+force-link/flswitch_test
 link/b/flsurf
 link/b/handshake.syx
 link/force/flnet

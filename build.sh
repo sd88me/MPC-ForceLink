@@ -6,8 +6,11 @@ cd "$(dirname "$0")"
 [ -f "${MPC_BIN:-local/MPC}" ] || { echo "put your MPC binary at local/MPC (or set MPC_BIN)"; exit 1; }
 export MPC_BIN="$(cd "$(dirname "${MPC_BIN:-local/MPC}")" && pwd)/$(basename "${MPC_BIN:-local/MPC}")"
 # Live III shim (aarch64)
-docker run --rm --platform linux/arm64 -v "$PWD/spoof":/w -w /w arm64v8/gcc:12-bookworm \
-    gcc -std=gnu11 -O2 -Wall -Wextra -fPIC -shared -o forcespoof.so forcespoof.c -ldl -lpthread
+docker run --rm --platform linux/arm64 -v "$PWD":/w -w /w/spoof arm64v8/gcc:12-bookworm sh -c '
+    gcc -std=gnu11 -O2 -Wall -Wextra -fPIC -shared -o forcespoof.so forcespoof.c ../force-link/combo.c \
+        ../force-link/flswitch.c -ldl -lpthread &&
+    LD_PRELOAD=$PWD/forcespoof.so /bin/ls / >/dev/null && echo "preload test ok (aarch64)"'
+# never install a shim whose preload test failed (one crash-looped MPC): the line above must print "ok"
 # Force daemons (armhf) + their offline tests
 force-link/build.sh
 # device bundles

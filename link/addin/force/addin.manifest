@@ -1,0 +1,8 @@
+# Force side of forcelink (stock MPC), for the shared addin installer (installer/): the SHIFT + MENU setup switch.
+# Reads /data/forcelink/switch.conf (written by `forcelink addins`); inert without it.
+ADDIN_ID=forcelink-switch
+ADDIN_NAME="forcelink switch (Force)"
+ADDIN_SO=forcelink-switch.so
+ADDIN_CONF=""
+ADDIN_FILES=""
+ADDIN_DONE="forcelink: hold SHIFT + MENU until MENU blinks, then press MENU to switch the Force and the Live III to version B."

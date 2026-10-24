@@ -1,38 +1,41 @@
-# Switching setups on the devices (design, 2026-10-24, not built yet)
+# Switching setups on the devices
 
-Goal: change between stock, A and B with a button combo on either device, with no computer and no USB stick after
-the first install. Same model as MPC Skipback and the button remap: an **addin**, a library MPC preloads, watching the
-controller's button stream (`snd_rawmidi_read` on the "Private" port) and driving its LEDs. Installed once with the
-shared addin installer (`tools/release/addin/` in mpc-vst-plugins), which keeps the other addins' LD_PRELOAD entries and
-survives reboots (`mpc-addins-reload.service` handles the cold-boot `/etc` overlay).
+Status 2026-10-24: built and tested offline (combo, protocol, both preload tests); not yet installed on the devices.
+Version A is no longer a target here: the switch toggles **stock <-> B**.
+
+## Use
+On either device: **hold SHIFT + MENU** about 1.5 s until MENU blinks, let go, **press MENU** within 4 s. Both
+devices switch to the other setup (MPC restarts on both: the open project closes). Any other press, or waiting,
+cancels. If the other device does not answer, only this one switches (logged).
 
 ## Pieces
-| Device / setup | What sees the combo | How it switches |
+Same model as MPC Skipback and the button remap: libraries MPC preloads, watching the controller's button stream
+(`snd_rawmidi_read` on the "Private" port) and blinking its MENU LED, installed once with the shared addin installer
+(`link/addin/installer`, copied from mpc-vst-plugins) so they persist across reboots and keep other addins.
+
+| Where | What sees the combo | Switches to |
 |---|---|---|
-| Force, stock (its MPC runs) | `forcelink` addin (armv7) in the Force's MPC | runs `link.sh a|b` detached (`systemd-run`), which stops MPC and starts flnet/flsurf |
-| Force, A or B (its MPC stopped) | `flnet` / `flsurf` (they own the controller) | run `link.sh stock|a|b` detached |
-| Live III, any setup | `forcelink` addin (aarch64) = today's `forcespoof.so`, made an addin | runs its `link.sh` detached (drop-ins in /run, restart acvs) |
+| Live III, stock and B | the shim `forcespoof.so`, installed as addin `forcespoof` (aarch64) | the other one |
+| Force, stock (its MPC runs) | addin `forcelink-switch` (armv7, `force-link/flswitch_addin.c`) | B |
+| Force, B (its MPC stopped) | `flsurf -s switch.conf` (it owns the controller) | stock |
 
-The two sides tell each other over the network (a small TCP control port; the peer's IP is in the addin's settings
-file, written at install), so one combo on either device switches both. Each side checks the other answered before
-restarting anything; if the peer is off, only the local side switches and the chooser says so.
+Shared code: `force-link/combo.c` (the gesture, `combo_test.c`) and `force-link/flswitch.c` (config, TCP 6771
+listener, `FLSW <token> <mode>`, `flswitch_test.c`). A switch tells the peer first, then runs
+`systemd-run --no-block -p KillMode=process sh link.sh switch <mode>` so it outlives the MPC restart it causes;
+`link.sh switch` does nothing if the device is already in that setup. Logs: Live III `/tmp/forcespoof.log`, Force
+`/tmp/forcelink-switch.log` (stock) or `/tmp/forcelink.log` (B).
 
-## The combo (proposed)
-Hold **SHIFT + MENU** about 1 s: a chooser opens on the pads. Top row, three pads: stock (white), A (blue), B (green);
-the current setup lit bright, the others dim. Tap one to switch, MENU or SHIFT+MENU again to cancel. On the Force the
-Q-link OLEDs label the three choices; on the Live III its screen shows a short popup. Chosen so it does not clash with
-the button remap's default rules (Menu x2, Mixer x2, Edit x2, Clip+Left, Rec Arm x2) or Skipback (Rec Arm x2).
-The chooser takes the pads only while open; MPC never sees those presses.
+`switch.conf` (`token=`, `peer=`, `script=`) is written by `link/forcelink addins` with a fresh random token; the
+listeners refuse requests without it. Keep it private.
 
-## Safety
-- Switching restarts MPC (closes the open project): the chooser asks for a second tap ("tap again to restart MPC").
-- The Live III after a reboot always starts stock (the 3.10 kit drop-in stays in /run), so a bad state is one reboot
-  away from normal. The addin itself is a no-op until the combo.
-- Same rule as now: a build whose QEMU preload test fails is never installed.
+## Install
+`./build.sh`, `link/forcelink install`, then `link/forcelink addins` (installs both addins, MPC not restarted; they
+load at the next switch or reboot). Remove: `sh /data/mpc-addins/<id>/uninstall.sh` on each device.
 
-## Order of work
-1. Live III addin: forcespoof.so + combo + control port, packaged with the shared installer (aarch64). Removes the
-   stick-after-every-reboot step.
-2. Combo in flsurf / flnet (Force in A/B).
-3. Force addin (armv7) for the stock side.
-4. Release zips per device, catalog entries.
+## Risks
+- The Live III shim then loads at every MPC start, also after a reboot. A shim that broke MPC would do it at every
+  boot; recovery is the autorun stick (SSH) and `uninstall.sh`. Rule kept: never install a build whose preload test
+  failed. A reboot still always comes up in stock (the 3.10 drop-in lives in /run).
+- On the Force the addin chains with Skipback and the button remap (same `dlsym` approach); not yet tried together.
+- MENU presses during the gesture also reach MPC (not swallowed); check on the device whether SHIFT + MENU does
+  anything there that gets in the way.

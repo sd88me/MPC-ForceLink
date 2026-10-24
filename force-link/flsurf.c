@@ -4,7 +4,8 @@
 //   controller -> client: as sent, except heartbeat/identity replies (dropped); pads renumbered when "notemap on".
 //   client -> controller: sysex to the Public port, other messages to Private, paced; F0 7D 46 <text> F7 runs a
 //     flcmd text command (e.g. "qlink 1 Cutoff|1.2kHz|90" draws Q-link OLED 1). dfu_guard() filters as in flnet.
-//   flsurf [-r] [-p port] handshake.syx
+//   flsurf [-r] [-p port] [-s switch.conf] handshake.syx
+// With -s: hold SHIFT + MENU, then MENU again, switches both devices back to stock (docs/DEVICE_SWITCH.md).
 #include <alsa/asoundlib.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -19,6 +20,19 @@
 #include <unistd.h>
 #include "floled.h"
 #include "flcmd.h"
+#include "combo.h"
+#include "flswitch.h"
+
+#define F_SHIFT 0x31
+#define F_MENU 0x02
+static flsw_t sw;
+static int sw_ready, sw_armed, sw_menu_led;   // MENU LED value the script last set, restored on cancel
+static combo_t sw_combo;
+
+static uint32_t now_ms(void) {
+    struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint32_t)(t.tv_sec * 1000u + t.tv_nsec / 1000000u);
+}
 
 typedef struct { uint8_t head[5]; int n; int drop; } dfu_guard_t;   // dfu_guard_fn.c (generated from flnet.c)
 size_t dfu_guard(dfu_guard_t *g, const uint8_t *in, size_t n, uint8_t *out);
@@ -107,6 +121,7 @@ static void down_msg(io_t *io, const uint8_t *m, size_t n) {
         fl_cmd(line, send_cb, io);
         return;
     }
+    if (n == 3 && m[0] == 0xB0 && m[1] == F_MENU) sw_menu_led = m[2];
     if (m[0] != 0xF0 && (m[0] & 0xF0) <= 0xA0)
         return;                        // notes from MPC (its pad feedback) would be taken as LED commands: drop
     send_all(m[0] == 0xF0 ? io->pub : io->priv, m, n);
@@ -130,12 +145,39 @@ static void down_feed(downsplit_t *d, io_t *io, const uint8_t *b, size_t n) {
     }
 }
 
+static void sw_led(io_t *io, int v) { uint8_t m[3] = {0xB0, F_MENU, (uint8_t)v}; send_all(io->priv, m, 3); }
+
+static void sw_action(io_t *io, int r) {
+    if (r == COMBO_ARMED) { sw_armed = 1; fprintf(stderr, "switch: armed, press MENU to go back to stock\n"); }
+    else if (r == COMBO_CANCEL) { sw_armed = 0; sw_led(io, sw_menu_led); fprintf(stderr, "switch: cancelled\n"); }
+    else if (r == COMBO_SWITCH) {
+        sw_armed = 0; sw_led(io, 3);
+        fprintf(stderr, "switch: to stock (%s)\n", flsw_tell_peer(&sw, "stock") ? "the Live III did not answer" : "the Live III too");
+        flsw_run_local(&sw, "stock");
+    }
+}
+
+// complete messages from up_filter: buttons are notes on channel 1, pads on channel 10
+static void sw_scan(io_t *io, const uint8_t *o, size_t n) {
+    for (size_t i = 0; i + 2 < n; ) {
+        uint8_t st = o[i];
+        int need = (st & 0xF0) == 0xC0 || (st & 0xF0) == 0xD0 ? 2 : 3;
+        if ((st & 0xE0) == 0x80 && ((st & 0x0F) == 0 || (st & 0x0F) == 9)) {
+            int down = (st & 0xF0) == 0x90 && o[i + 2] > 0;
+            int r = combo_event(&sw_combo, o[i + 1], down, (st & 0x0F) == 0, now_ms());
+            if (r) sw_action(io, r);
+        }
+        i += need;
+    }
+}
+
 int main(int argc, char **argv) {
     int a = 1, port = 6770;
     for (; a < argc && argv[a][0] == '-'; a++) {
         if (!strcmp(argv[a], "-r")) raw = 1;
         else if (!strcmp(argv[a], "-p") && a + 1 < argc) port = atoi(argv[++a]);
-        else { fprintf(stderr, "usage: %s [-r] [-p port] handshake.syx\n", argv[0]); return 2; }
+        else if (!strcmp(argv[a], "-s") && a + 1 < argc) sw_ready = flsw_load(&sw, argv[++a]) == 0;
+        else { fprintf(stderr, "usage: %s [-r] [-p port] [-s switch.conf] handshake.syx\n", argv[0]); return 2; }
     }
     if (a >= argc) { fprintf(stderr, "need handshake.syx\n"); return 2; }
     int card = find_card();
@@ -166,7 +208,14 @@ int main(int argc, char **argv) {
     downsplit_t ds; memset(&ds, 0, sizeof ds);
     dfu_guard_t g; memset(&g, 0, sizeof g);
     time_t last_ping = 0;
+    if (sw_ready) { combo_init(&sw_combo, F_SHIFT, F_MENU); flsw_listen(&sw); fprintf(stderr, "switch: SHIFT + MENU ready\n"); }
+    unsigned blink = 0;
     while (!stop) {
+        if (sw_ready) {
+            int r = combo_tick(&sw_combo, now_ms());
+            if (r) sw_action(&io, r);
+            if (sw_armed) sw_led(&io, (blink++ & 1) ? 3 : 0);
+        }
         if (time(NULL) - last_ping >= 4) {
             static const uint8_t ping[] = {0xF0, 0x47, 0x00, 0x40, 0x52, 0x00, 0x04, 0x31, 0x39, 0x16, 0x40, 0xF7};
             send_all(outp, ping, sizeof ping); last_ping = time(NULL);
@@ -184,6 +233,7 @@ int main(int argc, char **argv) {
             while ((r = snd_rawmidi_read(in[i], b, sizeof b)) > 0) {
                 if (raw) { fprintf(stderr, "ctl%d:", i); for (ssize_t k = 0; k < r; k++) fprintf(stderr, " %02X", b[k]); fputc('\n', stderr); }
                 size_t on = up_filter(&uf[i], b, (size_t)r, o);
+                if (sw_ready) sw_scan(&io, o, on);
                 if (on && cl >= 0 && write(cl, o, on) < 0) { close(cl); cl = -1; fprintf(stderr, "client gone\n"); }
             }
         }

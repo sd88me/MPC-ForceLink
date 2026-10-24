@@ -1,5 +1,5 @@
 // Offline test of flsurf's controller -> client filter (build in the armhf container, like flsurf):
-//   gcc -o t flsurf_test.c floled.c flcmd.c dfu_guard_fn.c -lasound && ./t
+//   gcc -o t flsurf_test.c floled.c flcmd.c dfu_guard_fn.c combo.c flswitch.c -lasound -lpthread && ./t
 #define main flsurf_main
 #include "flsurf.c"
 #undef main
