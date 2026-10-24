@@ -1,0 +1,7 @@
+[info]
+device=ForceLink
+manufacturer=Force Link
+input=Force Link,Force Link:Force Link,Force Link MIDI 1
+output=Force Link,Force Link:Force Link,Force Link MIDI 1
+script=ForceLink.lua
+scriptVersion=1.0
