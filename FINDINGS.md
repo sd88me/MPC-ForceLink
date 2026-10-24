@@ -428,3 +428,20 @@ Pad index = row * 8 + col, row 0 = top.
   played the pad at that level instead: to change).
 - User note on 22: the drum NOTE page may have shown one bank only because the program had only 16 pads loaded; the
   2x2 four-bank layout may appear with more pads. To check with a fuller program.
+
+## 24. Real Force Q-link OLEDs while turning (2026-10-25, device capture `local/captures/qlinks.bin`, Force MPC 3.9.1)
+Frames rendered to `local/captures/qlinks_frames.png`.
+- **Idle:** name in the small font (rows 7-13) + outlined bar (rows 18-29, fill rows 21-26), as in section 20.
+- **While a knob is touched or turned:** the display switches to the **value in a large font** (2 px strokes, about
+  8 x 12 px per glyph, ink on rows 5-16, centred; e.g. "0.00dB", "-INF dB", "50L", "3R", "C", "5.0") above a
+  **shorter bar**: outline rows 24-31 full width, fill rows 27-28 from x 3. It returns to the name view after release.
+  Updates while turning are partial writes (pages 2-3 / small x ranges).
+- **Pan (bipolar) parameters:** the bar is drawn from the centre: a small marker at the middle for "C", growing left
+  or right of the centre for L / R values (not a fill from the left).
+- `0A` setup (`<disp> 00 03 00 7f 00 00`) is resent to displays 2-7 when the page changes.
+- The large font is not a bitmap table in the MPC binary (the small one is); MPC carries Roboto .ttf files, so it is
+  probably rendered from a font. Plan: harvest glyphs from captures (digits, . - dB L R C INF seen), fall back to a
+  scaled small font for the rest.
+- During this session the Force's MPC once stopped answering the controller (input arrived, nothing sent back, OLEDs
+  blank) after SHIFT + NOTE and the NOTE settings; `systemctl restart acvs` fixed it. Not caused by the link code
+  (stock MPC, only addins); watch for it.
