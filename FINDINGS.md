@@ -410,4 +410,5 @@ octave up/down, then chromatic -> scale mode, change scale, change key.
   ADA2PadMap1x1, not the 2x2 four-bank layout (FINDINGS 20 found both in the binary; 2x2 must be an option).
 - Colours: each pad's program colour at reduced level (components up to `3f`, e.g. `1f 00 00`, `28 00 3f`); a hit
   shows the pad brighter (`3f 00 00`), then back.
-- SHIFT held cleared the 16 pads for a moment (`00 00 00`) and restored them after; NOTE LED value 4 once (meaning tbd).
+- Banks page with the octave up/down buttons (user); no visible 16/64 setting. SHIFT + NOTE (looking for settings)
+  cleared the 16 pads for a moment and restored them; NOTE LED value 4 meanwhile.
