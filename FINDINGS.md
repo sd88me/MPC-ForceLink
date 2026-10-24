@@ -412,3 +412,19 @@ octave up/down, then chromatic -> scale mode, change scale, change key.
   shows the pad brighter (`3f 00 00`), then back.
 - Banks page with the octave up/down buttons (user); no visible 16/64 setting. SHIFT + NOTE (looking for settings)
   cleared the 16 pads for a moment and restored them; NOTE LED value 4 meanwhile.
+
+## 23. Real Force STEP SEQ, drum track (2026-10-25, device capture `local/captures/stepseq.bin` + photo, Force MPC 3.9.1)
+Pad index = row * 8 + col, row 0 = top.
+- **Top 4 rows = 32 steps**, step 1 top-left, 8 per row (2 bars of 16ths). Empty step: the selected pad's colour very
+  dim (`03 00 00` for a red pad, `03 03 00` for a yellow one). A set step: its **velocity colour** from the palette
+  below (`7f 00 00` at full velocity, `7a 05 00` for a slightly softer one). Playhead: the current step `00 7f 00`
+  (bright green), moving one step at a time; the previous step goes back to its colour.
+- **Bottom-left 4x4 = pad select** (bank layout as NOTE mode): pads with sounds in their program colour (`1f`-level),
+  flashing brighter (`3f`) when they play; the selected pad white `7f 7f 7f`; empty pads not lit.
+- **Bottom-right 4x4 = 16 velocity levels**, MPC order (level 1 bottom-left of the quadrant, 16 top-right), colour
+  of level k = `3f+4k, 3f-4k, 00` (yellow -> red; level 16 = `7f 00 00`). The selected level white `7f 7f 7f`; one
+  level showed `00 1e 1e` after another was selected (meaning tbd, maybe the previous choice).
+- So the Force's step colours are velocities, and selecting a level sets the velocity for new steps (our link page
+  played the pad at that level instead: to change).
+- User note on 22: the drum NOTE page may have shown one bank only because the program had only 16 pads loaded; the
+  2x2 four-bank layout may appear with more pads. To check with a fuller program.
