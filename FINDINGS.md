@@ -1,5 +1,8 @@
 # Push 2 → Force-style controller for MPC Live III: offline findings (2026-10-10)
 
+**Terminology (2026-10-25):** sections below say "version B" for what is now called **link** (the Force as an
+extra surface for the Live III) and "version A" for the archived Force-identity setup.
+
 Sources: `~/roms/L3_MMC` (MMC dump, rootfs = p10, MPC **3.10.0.23** aarch64, product code **ACVG**, RK3588),
 Force 3.9.1 rootfs in `~/fwcmp/F`, KikGen libs and wiki and Ableton push-interface in `ref/`. No hardware has been tested.
 
@@ -362,7 +365,7 @@ the whole tree and `DiffStates` diffs two. The event serialiser (0x2f972c0) writ
 flags and NoteEvent {Note, MidiNote, Velocity, MidiVelocity, Length, NoteEnd, Probability, Ratchet, ...}. It is
 reached from the mpc.clipMatrix state (ScriptableClipLanesWrapper) and the project state (ScriptableProject). In
 memory the event list is an rb-tree at list+0x60 with the event at node+0x20; count at list+0x88. Not yet run on a
-device: probe = SHIFT + STEP SEQ in link/b/ForceLink.lua (see link/HANDOFF_B.md).
+device: probe = SHIFT + STEP SEQ in link/script/ForceLink.lua (see link/HANDOFF_LINK.md).
 
 ## 20. Force NOTE layout, Q-link OLED rendering, and script pad APIs (2026-10-24, offline, MPC 3.10.0.49)
 **Q-link OLEDs, pixel-exact.** MPC's OLED font is an 8-byte/glyph row-major table in the MPC binary (3.10 at

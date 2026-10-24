@@ -1092,7 +1092,7 @@ int snd_rawmidi_open(snd_rawmidi_t **in, snd_rawmidi_t **out, const char *name, 
 	int r = real(in, out, name, mode);
 	if (r < 0)
 		return r;
-	b_start();                                  /* version B: the Force Link port (b.conf) */
+	b_start();                                  /* link mode: the Force Link port (b.conf) */
 	sw_start();
 	if (!read_host()) {
 		if (sw_ready && port_kind(out && *out ? *out : *in) == 1) {

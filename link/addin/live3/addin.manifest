@@ -5,4 +5,4 @@ ADDIN_NAME="forcelink (Live III)"
 ADDIN_SO=forcespoof.so
 ADDIN_CONF=""
 ADDIN_FILES=""
-ADDIN_DONE="forcelink: hold SHIFT + MENU until MENU blinks, then press MENU to switch the Live III and the Force between stock and version B."
+ADDIN_DONE="forcelink: hold SHIFT + MENU until MENU blinks, then press MENU to switch the Force between stock and link."

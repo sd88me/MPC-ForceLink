@@ -1,13 +1,12 @@
 #!/bin/sh
-# Live III side of the Force link: link.sh stock | a | b | capture | status
-#   stock    stock MPC 3.9.1 app and identity (the addin drop-in 90-mpc-addins.conf is left alone).
-#   a        version A: MPC 3.10 app (kit in /data/mpc310) as a Force (Gen 2), Force controller over the network,
-#            Live III controls through the bridge (map.conf refines the mapping without a rebuild).
-#   b        version B: MPC 3.10 app as the Live III itself; a "Force Link" MIDI port (shim, b.conf) connects to flsurf on
-#            the Force, and the signed ForceLink controller script (b/) drives it as an extra surface.
+# Live III side of the Force link: link.sh link | stock | capture | status | switch <mode>
+#   link     MPC 3.10 app (kit in /data/mpc310) as the Live III itself; a "Force Link" MIDI port (shim, b.conf) connects
+#            to flsurf on the Force, and the signed ForceLink controller script (script/) drives it as an extra surface.
+#   stock    stock MPC 3.9.1 app (the addin drop-in 90-mpc-addins.conf is left alone).
 #   capture  MPC 3.10 app with its own Live III controller, every controller byte logged to /tmp/native.log.
 # Everything lives on /run, so a reboot is also "stock". Needs root (the autorun stick gives SSH until the next reboot).
-# Files: this folder (/data/mpc-addins/forcespoof): forcespoof.so, live3_init.syx, map.conf, net.conf (the Force's IP).
+# Files: this folder (/data/mpc-addins/forcespoof): forcespoof.so, net.conf.off (the Force's IP), home.conf, script/.
+# (The archived Force-identity mode, formerly "a", is in git history.)
 set -eu
 K=$(cd "$(dirname "$0")" && pwd)
 D=/run/systemd/system/acvs.service.d
@@ -41,28 +40,24 @@ DEV="/nvme/MPC Documents/Devices/ForceLink"   # where MPC 3.10 looks for user co
 
 case "${1:-status}" in
 switch)   # from the SHIFT + MENU setup switch (addin, flsurf): only acts if the setup differs
-    case "${2:-}" in stock|b|toggle) ;; *) echo "usage: $0 switch stock|b|toggle"; exit 2 ;; esac
-    now=$([ -f "$K/b.conf" ] && [ -f "$D/95-mpc310.conf" ] && echo b || echo stock)
+    want=$2; [ "$want" = b ] && want=link             # older name
+    case "$want" in stock|link|toggle) ;; *) echo "usage: $0 switch stock|link|toggle"; exit 2 ;; esac
+    now=$([ -f "$K/b.conf" ] && [ -f "$D/95-mpc310.conf" ] && echo link || echo stock)
     home=$(cat "$K/home.conf" 2>/dev/null || true)   # Live III: a home setup it always stays in
+    [ "$home" = b ] && home=link
     if [ -n "$home" ]; then [ "$now" = "$home" ] && { echo "stays in its home setup ($home)"; exit 0; }; exec sh "$0" "$home"; fi
-    to=$2; [ "$to" = toggle ] && { [ "$now" = b ] && to=stock || to=b; }
+    to=$want; [ "$to" = toggle ] && { [ "$now" = link ] && to=stock || to=link; }
     [ "$now" = "$to" ] && { echo "already $to"; exit 0; }
     exec sh "$0" "$to" ;;
-a|on)
-    [ -f "$K/net.conf.off" ] && [ ! -f "$K/net.conf" ] && mv "$K/net.conf.off" "$K/net.conf"
-    [ -s "$K/net.conf" ] || { echo "put the Force's IP address in $K/net.conf"; exit 1; }
-    echo s > "$K/dt.conf"; touch "$K/live3.conf"; rm -f "$K/tap.conf" "$K/b.conf"; rm -rf "$DEV"
-    dropins_310
-    restart "version A" ;;
-b)
+link|b)
     if [ -f "$K/net.conf" ]; then mv "$K/net.conf" "$K/net.conf.off"; fi
     force=$(cat "$K/net.conf.off" 2>/dev/null || true)
     [ -n "$force" ] || { echo "no Force address (net.conf.off)"; exit 1; }
-    [ -f "$K/b/ForceLink.ini" ] && [ -f "$K/b/ForceLink.lua" ] || { echo "ForceLink script missing in $K/b"; exit 1; }
+    [ -f "$K/script/ForceLink.ini" ] && [ -f "$K/script/ForceLink.lua" ] || { echo "ForceLink script missing in $K/script"; exit 1; }
     echo n > "$K/dt.conf"; rm -f "$K/live3.conf" "$K/tap.conf"; echo "$force" > "$K/b.conf"
-    mkdir -p "$DEV"; cp "$K/b/ForceLink.ini" "$K/b/ForceLink.lua" "$DEV/"
+    mkdir -p "$DEV"; cp "$K/script/ForceLink.ini" "$K/script/ForceLink.lua" "$DEV/"
     dropins_310
-    restart "version B" ;;
+    restart "link" ;;
 capture)
     if [ -f "$K/net.conf" ]; then mv "$K/net.conf" "$K/net.conf.off"; fi
     echo n > "$K/dt.conf"; rm -f "$K/live3.conf" "$K/b.conf"; rm -rf "$DEV"; touch "$K/tap.conf"; : > /tmp/native.log
@@ -77,12 +72,10 @@ status)
     echo "MPC: $(ver), acvs $(systemctl is-active acvs)"
     for f in 91-forcespoof.conf 95-mpc310.conf; do [ -f "$D/$f" ] && echo "drop-in $f: on" || echo "drop-in $f: off"; done
     m=stock
-    if [ -f "$D/91-forcespoof.conf" ] && [ -f "$K/live3.conf" ]; then m=A; fi
-    if [ -f "$D/91-forcespoof.conf" ] && [ "$(cat "$K/dt.conf" 2>/dev/null)" = n ]; then m=capture; fi
-    if [ "$m" = A ] && [ -f "$K/tap.conf" ]; then m="A (+ traffic log)"; fi
-    if { [ -f "$D/91-forcespoof.conf" ] || addin_installed; } && [ -f "$D/95-mpc310.conf" ] && [ -f "$K/b.conf" ]; then m=B; fi
+    if [ -f "$D/95-mpc310.conf" ] && [ -f "$K/tap.conf" ]; then m=capture; fi
+    if [ -f "$D/95-mpc310.conf" ] && [ -f "$K/b.conf" ]; then m=link; fi
     addin_installed && echo "addin: installed (SHIFT + MENU switch $( [ -f "$K/switch.conf" ] && echo on || echo off))"
-    echo "mode: $m (dt.conf $(cat "$K/dt.conf" 2>/dev/null || echo none), force $(cat "$K/net.conf" 2>/dev/null || echo -))"
+    echo "mode: $m (home $(cat "$K/home.conf" 2>/dev/null || echo none), Force $(cat "$K/b.conf" 2>/dev/null || echo -))"
     grep -E "link|bridge" /tmp/forcespoof.log 2>/dev/null | tail -n 4 || true ;;
-*) echo "usage: $0 stock|a|b|capture|status|switch stock|b|toggle"; exit 2 ;;
+*) echo "usage: $0 link|stock|capture|status|switch stock|link|toggle"; exit 2 ;;
 esac

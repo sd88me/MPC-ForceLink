@@ -1,5 +1,5 @@
-/* forcelink switch addin for the Force (stock MPC): hold SHIFT + MENU, then MENU again, switches the Force and the
- * Live III to version B (docs/DEVICE_SWITCH.md). Loaded by MPC through LD_PRELOAD like Skipback and the button remap,
+/* forcelink switch addin for the Force (stock MPC): hold SHIFT + MENU, then MENU again, links the Force to the
+ * Live III (docs/DEVICE_SWITCH.md). Loaded by MPC through LD_PRELOAD like Skipback and the button remap,
  * and chains with them (snd_rawmidi_* resolved with libc's own dlsym, RTLD_NEXT). Inert without switch.conf.
  * Build (armhf): gcc -O2 -fPIC -shared -o forcelink-switch.so flswitch_addin.c combo.c flswitch.c -ldl -lpthread */
 #define _GNU_SOURCE
@@ -72,12 +72,12 @@ static void led(int v) {
 }
 
 static void action(int r) {
-    if (r == COMBO_ARMED) { armed = 1; note("switch", "armed: press MENU to switch to version B"); }
+    if (r == COMBO_ARMED) { armed = 1; note("switch", "armed: press MENU to link the Force to the Live III"); }
     else if (r == COMBO_CANCEL) { armed = 0; led(menu_led); note("switch", "cancelled"); }
     else if (r == COMBO_SWITCH) {
         armed = 0; led(3);
-        note("switch: to b,", flsw_tell_peer(&sw, "b") ? "the Live III did not answer" : "the Live III too");
-        flsw_run_local(&sw, "b");
+        note("switch: to link,", flsw_tell_peer(&sw, "link") ? "the Live III did not answer" : "the Live III told");
+        flsw_run_local(&sw, "link");
     }
 }
 

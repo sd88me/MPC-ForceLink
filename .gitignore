@@ -3,7 +3,7 @@ local/
 link/hosts.conf
 # generated from your own MPC binary: never commit
 force-link/flfont_mpc.h
-link/b/ForceLink.ini
+link/script/ForceLink.ini
 # build outputs
 *.so
 *.o
@@ -14,7 +14,7 @@ force-link/flsurf_test
 force-link/forcelink
 force-link/combo_test
 force-link/flswitch_test
-link/b/flsurf
-link/b/handshake.syx
+link/script/flsurf
+link/script/handshake.syx
 link/force/flnet
 __pycache__/

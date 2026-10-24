@@ -1,19 +1,19 @@
 #!/bin/sh
 # Dev box: switch the Force + Live III pair between setups, on both devices, in the right order.
-#   forcelink stock     both stock (Force: its own MPC; Live III: MPC 3.9.1)
-#   forcelink a         version A: Live III runs MPC 3.10 as a Force (Gen 2); the Force is its surface; Live III
-#                       controls through the bridge. Modes are shared between the two.
-#   forcelink b         version B: Live III stays itself on MPC 3.10; the Force is an extra surface driven by a
-#                       controller script (parallel modes). Built offline (b/build.sh), not yet run on the devices.
+# Two setups:
+#   link    the Live III runs MPC 3.10 as itself; the Force is an extra surface for it (its own MPC stopped, flsurf
+#           serves its controller to the Live III's ForceLink controller script). The Live III's normal setup: its boot
+#           stick brings it up in link every boot.
+#   stock   both devices run their own MPC (the Live III: plain 3.9.1, until its next boot).
+#   forcelink link | stock      switch both devices
 #   forcelink capture   Force stock; Live III on MPC 3.10 with its own controller, controller traffic logged.
-#   forcelink status | install    (install also sets the Live III's home setup to b: the USB stick's boot hook
-#                       brings it up in MPC 3.10 + the Force link every boot; SHIFT + MENU then toggles only the Force)
+#   forcelink status | install    (install also sets the Live III's home setup to link; SHIFT + MENU on either device
+#                       then toggles only the Force between stock and link)
 #   forcelink addins    install the setup-switch addins on both devices (persistent: MPC loads them at every start)
 #                       and write switch.conf (fresh token, each side's peer). Then on either device: hold SHIFT + MENU
-#                       until MENU blinks, press MENU: both switch between stock and B (docs/DEVICE_SWITCH.md).
+#                       until MENU blinks, press MENU: the Force toggles between stock and link (docs/DEVICE_SWITCH.md).
 #   forcelink cap start | cap stop <name>   record the Force controller's USB traffic (usbmon, Force in stock) while
 #                       you use it; stop fetches local/captures/<name>.bin and decodes it (OLEDs, pads, LEDs)
-#   forcelink probe <hex bytes>   send bytes to the Live III controller (version A only), e.g. LED mapping
 # Hosts come from hosts.conf next to this script (FORCE=<ip>, LIVE3=<ip>); keep it out of any repo.
 # Every switch restarts MPC where it changes something, which closes the open project.
 set -eu
@@ -32,19 +32,16 @@ case "${1:-status}" in
 install)
     f 'mkdir -p /data/forcelink'
     # running binaries can't be overwritten: stage as .new, then mv
-    scp -q -o BatchMode=yes "$H/force/flnet" root@$FORCE:/data/forcelink/flnet.new
-    scp -q -o BatchMode=yes "$H/b/flsurf" root@$FORCE:/data/forcelink/flsurf.new
-    scp -q -o BatchMode=yes "$H/force/link.sh" "$H/b/handshake.syx" root@$FORCE:/data/forcelink/
-    f 'cd /data/forcelink && mv flnet.new flnet && mv flsurf.new flsurf && chmod +x flnet flsurf link.sh'
-    l "mkdir -p $L3/b"
-    scp -q -o BatchMode=yes "$H/b/ForceLink.ini" "$H/b/ForceLink.lua" root@$LIVE3:$L3/b/
-    scp -q -o BatchMode=yes "$H/a/forcespoof.so" "$H/a/live3_init.syx" "$H/live3/link.sh" "$H/live3/boot.sh" root@$LIVE3:/tmp/
-    l "cd /tmp && mv forcespoof.so live3_init.syx link.sh boot.sh $L3/ && chmod +x $L3/link.sh && echo b > $L3/home.conf && \
+    scp -q -o BatchMode=yes "$H/script/flsurf" root@$FORCE:/data/forcelink/flsurf.new
+    scp -q -o BatchMode=yes "$H/force/link.sh" "$H/script/handshake.syx" root@$FORCE:/data/forcelink/
+    f 'cd /data/forcelink && mv flsurf.new flsurf && chmod +x flsurf link.sh'
+    l "mkdir -p $L3/script"
+    scp -q -o BatchMode=yes "$H/script/ForceLink.ini" "$H/script/ForceLink.lua" root@$LIVE3:$L3/script/
+    scp -q -o BatchMode=yes "$H/script/forcespoof.so" "$H/live3/link.sh" "$H/live3/boot.sh" root@$LIVE3:/tmp/
+    l "cd /tmp && mv forcespoof.so link.sh boot.sh $L3/ && chmod +x $L3/link.sh && echo link > $L3/home.conf && \
        { [ -f $L3/net.conf ] || [ -f $L3/net.conf.off ] || echo $FORCE > $L3/net.conf; }"
-    if [ -f "$H/a/map.conf" ]; then scp -q -o BatchMode=yes "$H/a/map.conf" root@$LIVE3:$L3/map.conf; fi
     echo "installed (takes effect on the next switch)" ;;
-a|on)    f 'sh /data/forcelink/link.sh a' && l "sh $L3/link.sh a" ;;
-b)       f 'sh /data/forcelink/link.sh b' && l "sh $L3/link.sh b" ;;
+link|b)  f 'sh /data/forcelink/link.sh link' && l "sh $L3/link.sh link" ;;
 stock|off) l "sh $L3/link.sh stock" || true; f 'sh /data/forcelink/link.sh stock' ;;
 capture) l "sh $L3/link.sh capture" || true; f 'sh /data/forcelink/link.sh stock' ;;
 addins)
@@ -55,7 +52,7 @@ addins)
         cp "$H/addin/installer/install.sh" "$H/addin/installer/uninstall.sh" "$H/addin/installer/addin-lib.sh" \
            "$H/addin/$side/addin.manifest" "$H/addin/$side/mpc-plugin.json" "$st/$side/"
     done
-    cp "$H/a/forcespoof.so" "$st/live3/"
+    cp "$H/script/forcespoof.so" "$st/live3/"
     cp "$H/../force-link/forcelink-switch.so" "$st/force/"
     printf 'token=%s\npeer=%s\nscript=%s/link.sh\n' "$tok" "$FORCE" "$L3" > "$st/live3/switch.conf"
     printf 'token=%s\npeer=%s\nscript=/data/forcelink/link.sh\n' "$tok" "$LIVE3" > "$st/force/switch.conf"
@@ -81,7 +78,6 @@ cap)
         python3 "$H/../tools/force_capture_render.py" "$H/../local/captures/$n.bin" "$H/../local/captures/$n" ;;
     *) echo "usage: $0 cap start | cap stop <name>"; exit 2 ;;
     esac ;;
-probe)   shift; l "echo 'pub $*' > /tmp/l3probe" ;;
 status)  echo "== Force"; f 'sh /data/forcelink/link.sh status'; echo "== Live III"; l "sh $L3/link.sh status" ;;
-*) echo "usage: $0 stock|a|b|capture|status|install|addins|cap start|cap stop <name>|probe <hex>"; exit 2 ;;
+*) echo "usage: $0 link|stock|capture|status|install|addins|cap start|cap stop <name>"; exit 2 ;;
 esac

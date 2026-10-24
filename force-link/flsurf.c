@@ -1,11 +1,11 @@
-// flsurf: the Force controller as a MIDI surface for version B (a controller script on the Live III), over TCP.
+// flsurf: the Force controller as a MIDI surface for link mode (the ForceLink controller script on the Live III), over TCP.
 // Based on forcelink: owns the controller (Force MPC stopped), replays the start-up handshake, keeps the heartbeat.
 // One TCP client (port 6770), raw MIDI both ways:
 //   controller -> client: as sent, except heartbeat/identity replies (dropped); pads renumbered when "notemap on".
 //   client -> controller: sysex to the Public port, other messages to Private, paced; F0 7D 46 <text> F7 runs a
 //     flcmd text command (e.g. "qlink 1 Cutoff|1.2kHz|90" draws Q-link OLED 1). dfu_guard() filters as in flnet.
 //   flsurf [-r] [-p port] [-s switch.conf] handshake.syx
-// With -s: hold SHIFT + MENU, then MENU again, switches both devices back to stock (docs/DEVICE_SWITCH.md).
+// With -s: hold SHIFT + MENU, then MENU again, switches the Force back to stock (docs/DEVICE_SWITCH.md).
 #include <alsa/asoundlib.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>

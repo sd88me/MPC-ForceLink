@@ -1,9 +1,8 @@
 #!/bin/sh
-# Force side of the Force link: link.sh a | b | stock | status
-#   a      stop the Force's own MPC; flnet serves its controller ports to the Live III's MPC (TCP 6760/6761, side 6762).
-#   b      stop the Force's own MPC; flsurf owns the controller (handshake, heartbeat, OLED text) and serves it as a plain
+# Force side of the Force link: link.sh link | stock | status | switch <mode>
+#   link   stop the Force's own MPC; flsurf owns the controller (handshake, heartbeat, OLED text) and serves it as a plain
 #          MIDI surface to the Live III's ForceLink script (TCP 6770).
-#   stock  stop either daemon and start the Force's MPC again.
+#   stock  stop flsurf and start the Force's MPC again. (The archived Force-identity mode, flnet, is in git history.)
 # Each switch that stops or starts MPC closes the open project. Files: this folder (/data/forcelink). Log: /tmp/forcelink.log.
 set -eu
 K=$(cd "$(dirname "$0")" && pwd)
@@ -17,13 +16,13 @@ start() {   # start <daemon> [args]
 }
 case "${1:-status}" in
 switch)   # from the SHIFT + MENU setup switch (addin, flsurf): only acts if the setup differs
-    case "${2:-}" in stock|b|toggle) ;; *) echo "usage: $0 switch stock|b|toggle"; exit 2 ;; esac
-    now=$([ -n "$(pidof flsurf || true)" ] && echo b || echo stock)
-    to=$2; [ "$to" = toggle ] && { [ "$now" = b ] && to=stock || to=b; }
+    want=$2; [ "$want" = b ] && want=link             # older name
+    case "$want" in stock|link|toggle) ;; *) echo "usage: $0 switch stock|link|toggle"; exit 2 ;; esac
+    now=$([ -n "$(pidof flsurf || true)" ] && echo link || echo stock)
+    to=$want; [ "$to" = toggle ] && { [ "$now" = link ] && to=stock || to=link; }
     [ "$now" = "$to" ] && { echo "already $to"; exit 0; }
     exec sh "$0" "$to" ;;
-a|on)  start flnet ;;
-b)     if [ -f "$K/switch.conf" ]; then start flsurf -s "$K/switch.conf" "$K/handshake.syx"; else start flsurf "$K/handshake.syx"; fi ;;
+link|b) if [ -f "$K/switch.conf" ]; then start flsurf -s "$K/switch.conf" "$K/handshake.syx"; else start flsurf "$K/handshake.syx"; fi ;;
 stock|off)
     daemons_off
     systemctl start acvs
@@ -31,5 +30,5 @@ stock|off)
 status)
     echo "flnet: $(pidof flnet || echo off), flsurf: $(pidof flsurf || echo off), acvs: $(systemctl is-active acvs || true)"
     grep -E "client|blocked|flsurf" /tmp/forcelink.log 2>/dev/null | tail -n 4 || true ;;
-*) echo "usage: $0 a|b|stock|status|switch stock|b|toggle"; exit 2 ;;
+*) echo "usage: $0 link|stock|status|switch stock|link|toggle"; exit 2 ;;
 esac

@@ -1,5 +1,8 @@
 # Handoff: Force as a hardware extension of an MPC Live III (2026-10-15)
 
+**Terminology (2026-10-25):** "version B" is now **link**; "version A" (Force identity) is archived. Older
+entries below keep the old names. Current handoff: `link/HANDOFF_LINK.md`.
+
 Details live in `FINDINGS.md` (§9-§12.6) and memory `force-controller-protocol.md`. Code is in `force-link/`.
 
 ## Where we are
@@ -54,4 +57,4 @@ Rules: ask before restarting MPC on either device (closes projects); never publi
 - **B built offline (2026-10-24):** `link/b/` (ForceLink.lua v0 + signed .ini via b/build.sh, flsurf, handshake.syx; shim B mode = `b.conf`), `forcelink b` wired on both devices and installed. Tests: b/test_forcelink.lua 12/12 (mock API), force-link/flsurf_test.c 4/4, bridge_test.c 9/9. tools/sign_script.py now knows 3.10.0.49 (salt offset 0x5287C10, verified against the shipped MPK script). Not run on hardware yet: first run needs the user watching (both MPCs restart).
 - Open questions for B's first run: does MPC list the shim's seq port "Force Link" and bind the script to it (port-name forms in ForceLink.ini.in); where the per-device clip aperture lives (script reports on screen); clip State values' type.
 
-## Handoff 2026-10-24 (B): see link/HANDOFF_B.md
+## Handoff 2026-10-24 (B, now "link"): see link/HANDOFF_LINK.md

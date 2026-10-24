@@ -1,4 +1,4 @@
-# Handoff: Force link, version B (2026-10-24)
+# Handoff: Force link (link setup; formerly "version B", renamed 2026-10-25)
 
 Read first: `README.md` (this folder: switching, files, sessions), `../FINDINGS.md` sections 13-18 (all device facts).
 
@@ -7,9 +7,9 @@ Read first: `README.md` (this folder: switching, files, sessions), `../FINDINGS.
 changes. After a Live III reboot, run the USB stick once for SSH, then switch again.
 
 ## State when written
-Both devices in B. Live III: MPC 3.10.0.49, ForceLink script loaded, Force Link port connected. Force: flsurf running.
+Both devices in link. Live III: MPC 3.10.0.49, ForceLink script loaded, Force Link port connected. Force: flsurf running.
 
-## Version B feature status (device-tested unless marked)
+## Feature status (device-tested unless marked)
 - MATRIX: clip colours (dim stopped, bright playing, blink queued), clip and row launch, arrows move the window, row
   launch / track select / stop-row / arrow LEDs: working.
 - NOTE: 64 plain notes (36-99, bottom-left first) into the selected track, MPC pad colours: working.
@@ -28,14 +28,14 @@ Both devices in B. Live III: MPC 3.10.0.49, ForceLink script loaded, Force Link 
 ## Made to match the real Force (2026-10-24, offline; staged, not deployed)
 - Q-link OLEDs: MPC's own font and geometry, pixel-exact against 11 captured real-Force frames (FINDINGS 20).
   Bar = Q-link knob position; value changes redraw only the bar. Build: `force-link/build.sh` (generates
-  `flfont_mpc.h` from the local MPC binary; keep it out of any repo), then `link/b/build.sh`.
+  `flfont_mpc.h` from the local MPC binary; keep it out of any repo), then `link/script/build.sh`.
 - NOTE on drum tracks: the Force's bank layout (A bottom-left, B bottom-right, C top-left, D top-right, 4x4 each),
   every pad mapped to its absolute program pad (AddNoteToVirtualPad), colours from that pad. Melodic tracks unchanged.
 - Still to capture for melodic NOTE (about 5 min at the Force): `./forcelink stock`, then on the Force
   `cat /dev/usbmon2 > /tmp/note.bin` (as in FINDINGS 10) while: NOTE on a keygroup track, octave up/down, change
   scale/root in its settings, press a few pads; also a pan Q-link page. Decode with
   `tools/force_capture_render.py /tmp/note.bin out` (pad colours, LEDs, OLEDs).
-- Tests: `b/test_forcelink.lua` 32/32, `flsurf_test` 4/4, `oled_test`, `cmd_test`.
+- Tests: `script/test_forcelink.lua`, `flsurf_test` 4/4, `oled_test`, `cmd_test`.
 
 ## Found offline 2026-10-24 (MPC 3.10.0.49, not yet tried on device): events may be readable from Lua
 - Every scriptable object gets `#GetState` ("Provides the state of this object") registered next to `Help` in the
@@ -70,16 +70,14 @@ The Force's own MPC already implements NOTE and STEP SEQ on this controller, so 
 - Capture it: `forcelink stock` (Force runs its own MPC), then usbmon on the Force while using NOTE / STEP SEQ
   (tools in `../tools/`: usbmon_bin_parse.py, force_pad_grid_dump.py, as in FINDINGS 10-12). That gives the exact pad
   layout, colours, LED values, the 32-step page, pad select and 16 levels as the real Force draws them.
-- Version A already runs the genuine Force UI on the Live III (MPC 3.10 as Force Gen 2), including STEP SEQ and NOTE;
-  capturing A's traffic (flnet logs with -r) shows the same for the Live III's projects.
 - The MPC binary contains the Force surface code (ADA2 step-sequencer and pad responders); reading those routines
   would show the logic, but the captures are the cheaper first step.
 Use the captures to copy layout and colours into ForceLink.lua; sequence data still needs the internal route.
 
 ## Files
-- `b/ForceLink.lua` (script), `b/test_forcelink.lua` (mock API test), `b/build.sh` (signs + gathers), `b/ForceLink.ini.in`.
-- `../force-link/flsurf.c` (+ `flsurf_test.c`): the Force side of B.
-- `../spoof/forcespoof.c`: the Live III shim (A and B).
+- `script/ForceLink.lua` (script), `script/test_forcelink.lua` (mock API test), `script/build.sh` (signs + gathers), `script/ForceLink.ini.in`.
+- `../force-link/flsurf.c` (+ `flsurf_test.c`): the Force side of link.
+- `../spoof/forcespoof.c`: the Live III shim.
 Deploy a script change: `cd b && ./build.sh`, then copy ForceLink.ini/.lua to the Live III
-`/data/mpc-addins/forcespoof/b/` and `/nvme/MPC Documents/Devices/ForceLink/` and restart acvs (or `forcelink install`
-then `forcelink b`).
+`/data/mpc-addins/forcespoof/script/` and `/nvme/MPC Documents/Devices/ForceLink/` and restart acvs (or `forcelink install`
+then `forcelink link`).

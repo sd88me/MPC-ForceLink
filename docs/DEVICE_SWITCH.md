@@ -2,11 +2,11 @@
 
 Status 2026-10-24: installed on both devices; both addins load and listen (device). The button gesture itself is not yet
 tried by hand.
-Version A is no longer a target here: the switch toggles **stock <-> B**.
+The two setups are **stock** and **link** (the Force as an extra surface for the Live III; formerly "B").
 
-**Normal setup (2026-10-24, device):** the Live III's home setup is B (`home.conf`): its boot stick
+**Normal setup (2026-10-24, device):** the Live III's home setup is link (`home.conf`): its boot stick
 (`tools/stick/`) brings it up hands-free in MPC 3.10 + the Force link at every boot, and it stays there. SHIFT + MENU
-on either device toggles **only the Force** (stock <-> B); the Live III does not restart. `forcelink stock` on the
+on either device toggles **only the Force** (stock <-> link); the Live III does not restart. `forcelink stock` on the
 dev box still gives plain 3.9.1 for plugin work (until the next reboot).
 
 ## Use
@@ -21,15 +21,15 @@ Same model as MPC Skipback and the button remap: libraries MPC preloads, watchin
 
 | Where | What sees the combo | Switches to |
 |---|---|---|
-| Live III, stock and B | the shim `forcespoof.so`, installed as addin `forcespoof` (aarch64) | the other one |
-| Force, stock (its MPC runs) | addin `forcelink-switch` (armv7, `force-link/flswitch_addin.c`) | B |
-| Force, B (its MPC stopped) | `flsurf -s switch.conf` (it owns the controller) | stock |
+| Live III, stock and link | the shim `forcespoof.so`, installed as addin `forcespoof` (aarch64) | the other one |
+| Force, stock (its MPC runs) | addin `forcelink-switch` (armv7, `force-link/flswitch_addin.c`) | link |
+| Force, link (its MPC stopped) | `flsurf -s switch.conf` (it owns the controller) | stock |
 
 Shared code: `force-link/combo.c` (the gesture, `combo_test.c`) and `force-link/flswitch.c` (config, TCP 6771
 listener, `FLSW <token> <mode>`, `flswitch_test.c`). A switch tells the peer first, then runs
 `systemd-run --no-block -p KillMode=process sh link.sh switch <mode>` so it outlives the MPC restart it causes;
 `link.sh switch` does nothing if the device is already in that setup. Logs: Live III `/tmp/forcespoof.log`, Force
-`/tmp/forcelink-switch.log` (stock) or `/tmp/forcelink.log` (B).
+`/tmp/forcelink-switch.log` (stock) or `/tmp/forcelink.log` (link).
 
 `switch.conf` (`token=`, `peer=`, `script=`) is written by `link/forcelink addins` with a fresh random token; the
 listeners refuse requests without it. Keep it private.

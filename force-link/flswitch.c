@@ -34,7 +34,7 @@ const char *flsw_parse(const flsw_t *s, const char *line) {
     char tok[80], mode[16];
     if (sscanf(line, "FLSW %79s %15s", tok, mode) != 2 || strcmp(tok, s->token)) return NULL;
     if (!strcmp(mode, "stock")) return "stock";
-    if (!strcmp(mode, "b")) return "b";
+    if (!strcmp(mode, "link") || !strcmp(mode, "b")) return "link";   // "b": older name
     if (!strcmp(mode, "toggle")) return "toggle";   // the receiver switches to whichever setup it is not in
     return NULL;
 }
@@ -42,7 +42,7 @@ const char *flsw_parse(const flsw_t *s, const char *line) {
 extern char **environ;
 
 int flsw_run_local(const flsw_t *s, const char *mode) {
-    if (strcmp(mode, "stock") && strcmp(mode, "b") && strcmp(mode, "toggle")) return -1;
+    if (strcmp(mode, "stock") && strcmp(mode, "link") && strcmp(mode, "toggle")) return -1;
     char *env[64]; int k = 0;                       // the child must not load the addin again
     for (char **e = environ; *e && k < 63; e++) if (strncmp(*e, "LD_PRELOAD=", 11)) env[k++] = *e;
     env[k] = NULL;

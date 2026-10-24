@@ -19,15 +19,15 @@ int main(void) {
     f = fopen(conf, "w"); fprintf(f, "token=0123456789abcdef0123\npeer=127.0.0.1\nscript=/x/link.sh\n"); fclose(f);
     flsw_t s;
     CHECK(flsw_load(&s, conf) == 0 && !strcmp(s.peer, "127.0.0.1"), "config loaded");
-    CHECK(flsw_parse(&s, "FLSW 0123456789abcdef0123 b\n") != NULL, "valid request parsed");
+    CHECK(flsw_parse(&s, "FLSW 0123456789abcdef0123 link\n") != NULL, "valid request parsed");
     CHECK(flsw_parse(&s, "FLSW wrongtoken b\n") == NULL, "wrong token refused");
     CHECK(flsw_parse(&s, "FLSW 0123456789abcdef0123 a\n") == NULL, "unknown mode refused");
     CHECK(flsw_parse(&s, "FLSW 0123456789abcdef0123 toggle\n") != NULL, "toggle accepted");
     flsw_listen(&s); usleep(200000);
-    CHECK(flsw_tell_peer(&s, "b") == 0, "peer accepted over TCP");
+    CHECK(flsw_tell_peer(&s, "link") == 0, "peer accepted over TCP");
     usleep(500000);
     f = fopen(out, "r"); line[0] = 0; if (f) { if (!fgets(line, sizeof line, f)) line[0] = 0; fclose(f); }
-    CHECK(strstr(line, "--no-block") && strstr(line, "KillMode=process") && strstr(line, "/x/link.sh switch b"), "link.sh b started via the runner");
+    CHECK(strstr(line, "--no-block") && strstr(line, "KillMode=process") && strstr(line, "/x/link.sh switch link"), "link.sh link started via the runner");
     flsw_t bad = s; strcpy(bad.token, "ffffffffffffffffffff");
     CHECK(flsw_tell_peer(&bad, "stock") != 0, "wrong token: peer refuses");
     puts(fails ? "FAILURES" : "ALL OK");

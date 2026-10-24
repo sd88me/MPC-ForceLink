@@ -14,7 +14,5 @@ docker run --rm --platform linux/arm64 -v "$PWD":/w -w /w/spoof arm64v8/gcc:12-b
 # Force daemons (armhf) + their offline tests
 force-link/build.sh
 # device bundles
-cp spoof/forcespoof.so link/a/
-cp force-link/flnet link/force/
-link/b/build.sh
-echo "build ok: ./link/forcelink install, then ./link/forcelink a|b|stock"
+link/script/build.sh
+echo "build ok: ./link/forcelink install, then ./link/forcelink link|stock"

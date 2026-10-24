@@ -1,28 +1,28 @@
 # Device test plan (staged 2026-10-25)
 
-State when staged: both devices run exactly the repo's builds (checked by checksum). Live III: MPC 3.10.0.49 + B from
+State when staged: both devices run exactly the repo's builds (checked by checksum). Live III: MPC 3.10.0.49 + link from
 the boot stick, ForceLink script loaded, waiting for the Force. Force: stock MPC with the `forcelink-switch` addin
 ready. Save projects first: every switch restarts MPC on the device that switches.
 
 Report per step: OK, or what you saw. Log reading is done from the dev box (commands in brackets).
 
 **Order to run (2026-10-25):** 7 (Force already in stock; the captures show what to copy, so they come before
-judging our versions) -> 1 (the switch, needed to reach B) -> 6 (decides how STEP SEQ is rebuilt) -> 2, 3, 4 ->
+judging our versions) -> 1 (the switch, needed to reach link) -> 6 (decides how STEP SEQ is rebuilt) -> 2, 3, 4 ->
 5 only if 6 fails (a quick look; skip it if 6 shows events are readable) -> 8, 9.
 
 ## 1. Setup switch (SHIFT + MENU)
 | # | Do | Expect |
 |---|---|---|
 | 1.1 | Force: hold SHIFT + MENU ~1.5 s, let go | Force MENU LED blinks |
-| 1.2 | Force: press MENU within 4 s | Force MPC stops, pads/OLEDs come back as the B surface (~10 s). Live III does not restart, project stays open |
+| 1.2 | Force: press MENU within 4 s | Force MPC stops, pads/OLEDs come back as the link surface (~10 s). Live III does not restart, project stays open |
 | 1.3 | Force: SHIFT + MENU hold, release, MENU | Force back to its own MPC (stock) |
-| 1.4 | Live III: same gesture | Live III MENU blinks, then the Force switches to B; Live III does not restart |
+| 1.4 | Live III: same gesture | Live III MENU blinks, then the Force switches to link; Live III does not restart |
 | 1.5 | Live III: same gesture again | Force back to stock |
 | 1.6 | Arm, then press a pad, or wait 5 s | cancelled, MENU LED back to normal, nothing restarts |
 | 1.7 | Note anything SHIFT + MENU does in MPC itself on either device | (MPC sees the presses too) |
-[logs: Live III `/tmp/forcespoof.log`, Force `/tmp/forcelink-switch.log` (stock) or `/tmp/forcelink.log` (B)]
+[logs: Live III `/tmp/forcespoof.log`, Force `/tmp/forcelink-switch.log` (stock) or `/tmp/forcelink.log` (link)]
 
-## 2. B basics (regression; Force in B)
+## 2. link basics (regression; Force in link)
 MATRIX: clip colours, launch a clip and a row, arrows move the 8x8 window, PLAY / REC. Expect as before.
 
 ## 3. Q-link OLEDs (new: drawn like the real Force)
@@ -70,9 +70,9 @@ Force in stock (step 1.3). For each, I start a recording, you do the actions, th
 Force: Skipback (Rec Arm twice saves), button remap combos (e.g. MENU twice), Remote. Live III: Skipback, Remote.
 
 ## 9. Reboots
-- Live III: power-cycle with the stick in: back in 3.10 + B by itself (~30 s); then step 1.4 works.
+- Live III: power-cycle with the stick in: back in 3.10 + link by itself (~30 s); then step 1.4 works.
 - Force: power-cycle: stock MPC with the switch ready (its addin is persistent); step 1.1 works.
 
 ## After
-Results go into FINDINGS.md (dated, device) and HANDOFF_B.md; fixes follow from what fails. Melodic NOTE gets built
+Results go into FINDINGS.md (dated, device) and link/HANDOFF_LINK.md; fixes follow from what fails. Melodic NOTE gets built
 from the `note-keys` capture.
