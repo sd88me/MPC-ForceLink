@@ -387,3 +387,19 @@ unconditionally. Only script callbacks: HandleMIDINoteOn/Off, HandleMIDICC, Hand
 `out:cc:qlink`, so a script cannot read what the Force's own pad responders would light.
 **Not resolved offline:** the melodic NOTE layout (ADA2PadNoteResponder: scale type, base note, octave shown as
 internal - 2; row interval and colours run through generic property/queue code). Needs a capture of the real Force.
+
+## 21. Real Force NOTE mode, melodic track (2026-10-25, device capture `local/captures/note-keys.bin`, Force MPC 3.9.1)
+Pad index = row * 8 + col, row 0 = top (56 = bottom-left). User actions: NOTE on a keygroup/plugin track, pads,
+octave up/down, then chromatic -> scale mode, change scale, change key.
+- **Chromatic layout:** each row 5 semitones (a 4th) above the row below, +1 semitone per pad to the right
+  (verified from which pads light together). All pads dim white `19 19 19`; root-note pads (pitch class of the key)
+  in a colour (`66 05 66` here).
+- **Scale (in-key) layout:** every pad is a scale note; each row starts 3 scale steps above the row below; the
+  bottom-left pad is the root, so a key change leaves the root positions unchanged. Roots coloured (`66 05 35` /
+  `66 35 05` seen), other pads dim white.
+- **Scale mode on, before the scale change** (about 1:54): the layout stayed chromatic and a set of pads took the root
+  colour (pitch classes 0, 2, 4, 6, 8 in that capture). Meaning not certain yet.
+- **Pressing a pad:** the pad, and every pad with the exact same note, `00 7f 00` (bright green); pads with the same
+  pitch class in other octaves `00 2a 11` (dim green); restored on release.
+- **Octave up/down:** shown on the main display only ("Octave n"); pad colours do not change.
+- SHIFT (LED `31`) relights the 16 RGB buttons at indexes 64-79 with their SHIFT functions.
