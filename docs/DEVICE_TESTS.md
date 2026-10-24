@@ -6,6 +6,10 @@ ready. Save projects first: every switch restarts MPC on the device that switche
 
 Report per step: OK, or what you saw. Log reading is done from the dev box (commands in brackets).
 
+**Order to run (2026-10-25):** 7 (Force already in stock; the captures show what to copy, so they come before
+judging our versions) -> 1 (the switch, needed to reach B) -> 6 (decides how STEP SEQ is rebuilt) -> 2, 3, 4 ->
+5 only if 6 fails (a quick look; skip it if 6 shows events are readable) -> 8, 9.
+
 ## 1. Setup switch (SHIFT + MENU)
 | # | Do | Expect |
 |---|---|---|
