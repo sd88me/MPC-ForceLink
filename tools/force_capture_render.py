@@ -18,7 +18,8 @@ def events(path):
 def midi_out(path):
     """(time, cable, message bytes) for every MPC -> controller USB-MIDI message, sysex reassembled per cable."""
     evs = [e for e in events(path) if e[1] == 'S' and e[2] == 3 and not (e[3] & 0x80) and e[5]]
-    devs = Counter(e[4] for e in evs if b'\xf0\x47\x7f\x40' in e[5] or any(e[5][k + 1:k + 4] == b'\xf0\x47\x7f' for k in range(0, len(e[5]) - 3, 4)))
+    # the controller: the device MPC sends Akai sysex (F0 47 ..) to, as USB-MIDI packets
+    devs = Counter(e[4] for e in evs if any(e[5][k + 1:k + 3] == b'\xf0\x47' for k in range(0, len(e[5]) - 3, 4)))
     dev = devs.most_common(1)[0][0] if devs else None
     bufs = {}
     for t, _, _, _, dv, data in evs:
@@ -57,13 +58,16 @@ def png(path, rows):
 
 def main(path, out):
     img, pads, leds, kinds, writes = {}, {}, {}, Counter(), Counter()
+    other = 0
     for t, cable, m in midi_out(path):
+        if m[:2] == b'\xf0\x47' and m[:4] != b'\xf0\x47\x7f\x40':
+            other += 1
         if m[:4] == b'\xf0\x47\x7f\x40':
             kinds[m[4]] += 1
             if m[4] == 0x0B: writes[oled_blit(img, m)] += 1
             elif m[4] == 0x65 and len(m) >= 12: pads[m[7]] = tuple(m[8:11])
         elif m[0] & 0xF0 == 0xB0: leds[m[1]] = m[2]
-    print('sysex types:', ' '.join(f'{k:02X}x{v}' for k, v in sorted(kinds.items())))
+    print('sysex types:', ' '.join(f'{k:02X}x{v}' for k, v in sorted(kinds.items())), '| other Akai sysex:', other)
     print('OLED writes per display:', dict(sorted(writes.items())))
     shown = [k for k in sorted(img) if k < 8]
     if shown:
