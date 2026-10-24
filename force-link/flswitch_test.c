@@ -22,6 +22,7 @@ int main(void) {
     CHECK(flsw_parse(&s, "FLSW 0123456789abcdef0123 b\n") != NULL, "valid request parsed");
     CHECK(flsw_parse(&s, "FLSW wrongtoken b\n") == NULL, "wrong token refused");
     CHECK(flsw_parse(&s, "FLSW 0123456789abcdef0123 a\n") == NULL, "unknown mode refused");
+    CHECK(flsw_parse(&s, "FLSW 0123456789abcdef0123 toggle\n") != NULL, "toggle accepted");
     flsw_listen(&s); usleep(200000);
     CHECK(flsw_tell_peer(&s, "b") == 0, "peer accepted over TCP");
     usleep(500000);

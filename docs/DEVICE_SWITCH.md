@@ -4,6 +4,11 @@ Status 2026-10-24: installed on both devices; both addins load and listen (devic
 tried by hand.
 Version A is no longer a target here: the switch toggles **stock <-> B**.
 
+**Normal setup (2026-10-24, device):** the Live III's home setup is B (`home.conf`): its boot stick
+(`tools/stick/`) brings it up hands-free in MPC 3.10 + the Force link at every boot, and it stays there. SHIFT + MENU
+on either device toggles **only the Force** (stock <-> B); the Live III does not restart. `forcelink stock` on the
+dev box still gives plain 3.9.1 for plugin work (until the next reboot).
+
 ## Use
 On either device: **hold SHIFT + MENU** about 1.5 s until MENU blinks, let go, **press MENU** within 4 s. Both
 devices switch to the other setup (MPC restarts on both: the open project closes). Any other press, or waiting,

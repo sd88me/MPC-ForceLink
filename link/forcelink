@@ -6,7 +6,8 @@
 #   forcelink b         version B: Live III stays itself on MPC 3.10; the Force is an extra surface driven by a
 #                       controller script (parallel modes). Built offline (b/build.sh), not yet run on the devices.
 #   forcelink capture   Force stock; Live III on MPC 3.10 with its own controller, controller traffic logged.
-#   forcelink status | install
+#   forcelink status | install    (install also sets the Live III's home setup to b: the USB stick's boot hook
+#                       brings it up in MPC 3.10 + the Force link every boot; SHIFT + MENU then toggles only the Force)
 #   forcelink addins    install the setup-switch addins on both devices (persistent: MPC loads them at every start)
 #                       and write switch.conf (fresh token, each side's peer). Then on either device: hold SHIFT + MENU
 #                       until MENU blinks, press MENU: both switch between stock and B (docs/DEVICE_SWITCH.md).
@@ -35,8 +36,8 @@ install)
     f 'cd /data/forcelink && mv flnet.new flnet && mv flsurf.new flsurf && chmod +x flnet flsurf link.sh'
     l "mkdir -p $L3/b"
     scp -q -o BatchMode=yes "$H/b/ForceLink.ini" "$H/b/ForceLink.lua" root@$LIVE3:$L3/b/
-    scp -q -o BatchMode=yes "$H/a/forcespoof.so" "$H/a/live3_init.syx" "$H/live3/link.sh" root@$LIVE3:/tmp/
-    l "cd /tmp && mv forcespoof.so live3_init.syx link.sh $L3/ && chmod +x $L3/link.sh && \
+    scp -q -o BatchMode=yes "$H/a/forcespoof.so" "$H/a/live3_init.syx" "$H/live3/link.sh" "$H/live3/boot.sh" root@$LIVE3:/tmp/
+    l "cd /tmp && mv forcespoof.so live3_init.syx link.sh boot.sh $L3/ && chmod +x $L3/link.sh && echo b > $L3/home.conf && \
        { [ -f $L3/net.conf ] || [ -f $L3/net.conf.off ] || echo $FORCE > $L3/net.conf; }"
     if [ -f "$H/a/map.conf" ]; then scp -q -o BatchMode=yes "$H/a/map.conf" root@$LIVE3:$L3/map.conf; fi
     echo "installed (takes effect on the next switch)" ;;

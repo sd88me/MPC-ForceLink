@@ -1,0 +1,17 @@
+--- /home/sam/push2-force/stick-backup-20261024/autorun/runtime/run.sh	2026-10-24 18:28:00.869667273 +1100
++++ /tmp/claude-1000/-home-sam-mpc-vst-plugins/1f94722b-532f-4103-8034-3b85df1cbdeb/scratchpad/stick/new/autorun/runtime/run.sh	2026-10-24 18:29:05.011982610 +1100
+@@ -40,6 +40,14 @@
+     sh "$d/install.sh" -y -n -t "${d%/}" || echo "warning: reapplying addin $id failed (status $?)"
+ done
+ 
++# Device-side boot hooks: an installed addin may carry boot.sh (in /data, root only) for what it needs once per
++# boot, e.g. forcelink starting MPC 3.10 + its Force link. The hook decides itself whether to restart MPC.
++for d in "${MPC_ADDINS_DIR:-/data/mpc-addins}"/*/; do
++    [ -f "$d/boot.sh" ] || continue
++    echo "Boot hook: $(basename "${d%/}")"
++    sh "$d/boot.sh" || echo "warning: boot hook $(basename "${d%/}") failed (status $?)"
++done
++
+ echo "SSH only: no catalog install, MPC not restarted. Staying alive so sshd (in this unit's cgroup) keeps running until reboot."
+ cp "$log" "$usb/mpc-install-result.txt" 2>/dev/null || true
+ trap - EXIT

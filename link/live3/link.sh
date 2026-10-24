@@ -41,10 +41,13 @@ DEV="/nvme/MPC Documents/Devices/ForceLink"   # where MPC 3.10 looks for user co
 
 case "${1:-status}" in
 switch)   # from the SHIFT + MENU setup switch (addin, flsurf): only acts if the setup differs
-    case "${2:-}" in stock|b) ;; *) echo "usage: $0 switch stock|b"; exit 2 ;; esac
+    case "${2:-}" in stock|b|toggle) ;; *) echo "usage: $0 switch stock|b|toggle"; exit 2 ;; esac
     now=$([ -f "$K/b.conf" ] && [ -f "$D/95-mpc310.conf" ] && echo b || echo stock)
-    [ "$now" = "$2" ] && { echo "already $2"; exit 0; }
-    exec sh "$0" "$2" ;;
+    home=$(cat "$K/home.conf" 2>/dev/null || true)   # Live III: a home setup it always stays in
+    if [ -n "$home" ]; then [ "$now" = "$home" ] && { echo "stays in its home setup ($home)"; exit 0; }; exec sh "$0" "$home"; fi
+    to=$2; [ "$to" = toggle ] && { [ "$now" = b ] && to=stock || to=b; }
+    [ "$now" = "$to" ] && { echo "already $to"; exit 0; }
+    exec sh "$0" "$to" ;;
 a|on)
     [ -f "$K/net.conf.off" ] && [ ! -f "$K/net.conf" ] && mv "$K/net.conf.off" "$K/net.conf"
     [ -s "$K/net.conf" ] || { echo "put the Force's IP address in $K/net.conf"; exit 1; }
@@ -81,5 +84,5 @@ status)
     addin_installed && echo "addin: installed (SHIFT + MENU switch $( [ -f "$K/switch.conf" ] && echo on || echo off))"
     echo "mode: $m (dt.conf $(cat "$K/dt.conf" 2>/dev/null || echo none), force $(cat "$K/net.conf" 2>/dev/null || echo -))"
     grep -E "link|bridge" /tmp/forcespoof.log 2>/dev/null | tail -n 4 || true ;;
-*) echo "usage: $0 stock|a|b|capture|status|switch stock|b"; exit 2 ;;
+*) echo "usage: $0 stock|a|b|capture|status|switch stock|b|toggle"; exit 2 ;;
 esac

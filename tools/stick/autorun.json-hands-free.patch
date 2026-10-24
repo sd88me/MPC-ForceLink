@@ -1,0 +1,13 @@
+--- /home/sam/push2-force/stick-backup-20261024/autorun/autorun.json	2026-10-24 18:28:00.693650322 +1100
++++ /tmp/claude-1000/-home-sam-mpc-vst-plugins/1f94722b-532f-4103-8034-3b85df1cbdeb/scratchpad/stick/new/autorun/autorun.json	2026-10-24 18:29:05.012068518 +1100
+@@ -9,8 +9,8 @@
+     "scripts": [
+       {
+         "path": "open.sh",
+-        "askQuestion": true,
+-        "message": "ENABLE SSH\n\nStarts SSH for this boot only. MPC is not restarted.",
++        "askQuestion": false,
++        "message": "BOOT SETUP\n\nSSH, addins and the forcelink setup for this boot.",
+         "yesButtonText": "Install",
+         "noButtonText": "Cancel"
+       }

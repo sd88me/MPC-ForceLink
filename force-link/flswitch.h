@@ -1,6 +1,6 @@
 // Setup switch between devices (docs/DEVICE_SWITCH.md). Config file, one key per line:
 //   token=<shared secret>   peer=<other device's IP>   script=<this device's link.sh>
-// Protocol: TCP 6771, one line "FLSW <token> <stock|b>\n". The switch runs `systemd-run --no-block sh <script> switch <mode>`
+// Protocol: TCP 6771, one line "FLSW <token> <stock|b|toggle>\n". The switch runs `systemd-run --no-block sh <script> switch <mode>`
 // so it survives the MPC restart it causes.
 #ifndef FLSWITCH_H
 #define FLSWITCH_H

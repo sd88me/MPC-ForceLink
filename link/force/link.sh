@@ -17,10 +17,11 @@ start() {   # start <daemon> [args]
 }
 case "${1:-status}" in
 switch)   # from the SHIFT + MENU setup switch (addin, flsurf): only acts if the setup differs
-    case "${2:-}" in stock|b) ;; *) echo "usage: $0 switch stock|b"; exit 2 ;; esac
+    case "${2:-}" in stock|b|toggle) ;; *) echo "usage: $0 switch stock|b|toggle"; exit 2 ;; esac
     now=$([ -n "$(pidof flsurf || true)" ] && echo b || echo stock)
-    [ "$now" = "$2" ] && { echo "already $2"; exit 0; }
-    exec sh "$0" "$2" ;;
+    to=$2; [ "$to" = toggle ] && { [ "$now" = b ] && to=stock || to=b; }
+    [ "$now" = "$to" ] && { echo "already $to"; exit 0; }
+    exec sh "$0" "$to" ;;
 a|on)  start flnet ;;
 b)     if [ -f "$K/switch.conf" ]; then start flsurf -s "$K/switch.conf" "$K/handshake.syx"; else start flsurf "$K/handshake.syx"; fi ;;
 stock|off)
@@ -30,5 +31,5 @@ stock|off)
 status)
     echo "flnet: $(pidof flnet || echo off), flsurf: $(pidof flsurf || echo off), acvs: $(systemctl is-active acvs || true)"
     grep -E "client|blocked|flsurf" /tmp/forcelink.log 2>/dev/null | tail -n 4 || true ;;
-*) echo "usage: $0 a|b|stock|status|switch stock|b"; exit 2 ;;
+*) echo "usage: $0 a|b|stock|status|switch stock|b|toggle"; exit 2 ;;
 esac

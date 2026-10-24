@@ -1007,11 +1007,10 @@ static void sw_action(int r)
 		note("switch", "cancelled");
 	} else if (r == COMBO_SWITCH) {
 		sw_armed = 0;
-		const char *to = b_on() ? "stock" : "b";
-		note(flsw_tell_peer(&sw, to) ? "switch: the Force did not answer, switching here only to" :
-					      "switch: the Force is switching too, to", to);
+		/* the Force toggles; the Live III keeps its home setup (home.conf) or toggles too without one */
+		note("switch:", flsw_tell_peer(&sw, "toggle") ? "the Force did not answer" : "the Force is toggling");
 		sw_led(3);
-		flsw_run_local(&sw, to);
+		flsw_run_local(&sw, "toggle");
 	}
 }
 
