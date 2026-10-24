@@ -17,7 +17,7 @@ ver() { p=$(pidof MPC || true); [ -n "$p" ] && strings /proc/$p/exe | grep -m1 -
 
 # Installed as an addin (in the shared, persistent addin drop-in), the shim is always loaded, also in stock, and
 # carries the SHIFT + MENU setup switch; then only the 3.10 drop-in changes here.
-addin_installed() { grep -qs "$K/forcespoof.so" /etc/systemd/system/acvs.service.d/90-mpc-addins.conf; }
+addin_installed() { grep -qs "$K/forcespoof.so" /etc/systemd/system/acvs.service.d/90-mpc-addins.conf "$D/90-mpc-addins.conf"; }
 
 dropins_310() {   # shim + MPC 3.10 drop-ins
     [ -x "$KIT/MPC" ] && [ -d "$KIT/Akai/SME0" ] || { echo "MPC 3.10 kit missing in $KIT"; exit 1; }

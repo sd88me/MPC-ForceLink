@@ -1,6 +1,7 @@
 # Switching setups on the devices
 
-Status 2026-10-24: built and tested offline (combo, protocol, both preload tests); not yet installed on the devices.
+Status 2026-10-24: installed on both devices; both addins load and listen (device). The button gesture itself is not yet
+tried by hand.
 Version A is no longer a target here: the switch toggles **stock <-> B**.
 
 ## Use
@@ -33,6 +34,8 @@ listeners refuse requests without it. Keep it private.
 load at the next switch or reboot). Remove: `sh /data/mpc-addins/<id>/uninstall.sh` on each device.
 
 ## Risks
+- On this Live III the shared addin drop-in lives in /run (no persistent /etc), as for every other addin there: after a
+  reboot the addins (this one too) load only once the autorun stick has run. The Force's is persistent.
 - The Live III shim then loads at every MPC start, also after a reboot. A shim that broke MPC would do it at every
   boot; recovery is the autorun stick (SSH) and `uninstall.sh`. Rule kept: never install a build whose preload test
   failed. A reboot still always comes up in stock (the 3.10 drop-in lives in /run).
