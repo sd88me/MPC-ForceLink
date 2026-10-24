@@ -1,5 +1,8 @@
 # The Live III boot stick (forcelink's "normal setup")
 
+**Superseded 2026-10-24:** the boot stick now comes from the separate repo `~/mpc310-on-391` (`build_stick.py`), which
+includes this boot hook. Notes below are kept for history.
+
 The Live III's `/etc` is not persistent and its root is read-only, so the only boot-time hook is MPC's stock USB
 autorun. The SSH stick (made by mpc-vst-plugins' `tools/usb_stick/make_stick.py`, branch `usb-bootstrap`) is changed in
 two places (verified on the device 2026-10-24):
