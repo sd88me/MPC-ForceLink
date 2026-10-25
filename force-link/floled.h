@@ -11,6 +11,10 @@ void fl_fb_text_mpc(fl_fb *f, int y, const char *s);               // MPC OLED f
 // Q-link layout as the real Force draws it: centred upper-case name + outlined bar 0..127 (bar<0 = none);
 // value is accepted for compatibility and not drawn. Same frame as fl_fb_track.
 void fl_fb_qlink(fl_fb *f, const char *name, const char *value, int bar);
+// Q-link views as the real Force draws them (FINDINGS 24). bar 0-127 (<0 = none); bipolar: pan-like, from the centre.
+void fl_fb_qlink_name(fl_fb *f, const char *name, int bar, int bipolar);    // idle: name + bar
+void fl_fb_qlink_value(fl_fb *f, const char *value, int bar, int bipolar);  // touched/turned: large value + thin bar
+void fl_fb_text_big(fl_fb *f, int y, const char *s);                        // large value font, centred
 // Encode as one sysex message for display d (0..7); returns length written (<= cap), 0 if cap too small.
 size_t fl_fb_sysex(const fl_fb *f, int d, uint8_t *out, size_t cap);
 // Layouts as the Force's own MPC draws them (see FINDINGS 12.1).

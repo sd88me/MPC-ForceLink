@@ -34,6 +34,13 @@ int fl_cmd(const char *line, fl_send_fn send, void *ctx) {
             *p2++ = 0; char *p3 = strchr(p2, '|'); int bar = -1; if (p3) { *p3++ = 0; bar = atoi(p3); }
             fl_fb_qlink(&fb, rest, p2, bar); size_t l = fl_fb_sysex(&fb, n - 1, sx, sizeof sx); send(ctx, 0, sx, l); return 0;
         }
+        // "qname <n> <name>|<bar>|<bipolar>" / "qval <n> <value>|<bar>|<bipolar>": the Force's Q-link name and value
+        // views (FINDINGS 24), full frames
+        if ((!strcmp(cmd, "qname") || !strcmp(cmd, "qval")) && p2) {
+            *p2++ = 0; char *p3 = strchr(p2, '|'); int bi = 0; if (p3) { *p3++ = 0; bi = atoi(p3); }
+            if (cmd[1] == 'n') fl_fb_qlink_name(&fb, rest, atoi(p2), bi); else fl_fb_qlink_value(&fb, rest, atoi(p2), bi);
+            size_t l = fl_fb_sysex(&fb, n - 1, sx, sizeof sx); send(ctx, 0, sx, l); return 0;
+        }
         if (!strcmp(cmd, "track") && p2) {
             *p2++ = 0; fl_fb_track(&fb, rest, atoi(p2)); size_t l = fl_fb_sysex(&fb, n - 1, sx, sizeof sx); send(ctx, 0, sx, l); return 0;
         }

@@ -399,22 +399,36 @@ local function knobQ(k) return 4 * (3 - k % 4) + knobBank(k) end
 local function knobOf(i) for k = 0, 7 do if knobQ(k) == i then return k end end end
 local qlinkHeld = false -- SHIFT + KNOBS holds the MPC's Q-LINK button until KNOBS is released
 
--- MPC Q-link index; drawn on the Force OLED of its knob when in the current bank, as the real Force draws it:
--- name + outlined bar of the knob position. A value change redraws only the bar (pages 2-3), like the Force.
-local function showQLink(i, barOnly)
+-- MPC Q-link index, drawn on the Force OLED of its knob as the real Force draws it (FINDINGS 20, 24): idle, the name
+-- and a bar; while the knob is touched (and half a second after), the value in the large font and a thin bar. Pan-like
+-- values ("C", "12L", "5R") get a bar from the centre.
+local touched, valueUntil = {}, {}   -- per Force knob 0-7
+local function isPan(v) return v == "C" or (v and v:match("^%d+[LR]$") ~= nil) end
+
+local function showQLink(i)
     local k = knobOf(i)
     if not k then return end
     local q = mpc.controlSurface.qlinks[i]
     if not q then return end
     local name = q.TargetName.value
-    if not name or name == "" then name = "Q-LINK " .. (knobBank(k) * 4 + k % 4 + 1) end -- no target: the Live's number
+    local value = q.ValueString.value or ""
     local ok, pos = pcall(q.GetPosition)
     if not ok or type(pos) ~= "number" then pos = -1 end
-    if barOnly and pos >= 0 then
-        text(string.format("bar %d %s %d", k + 1, name, math.floor(pos)))
+    local bi = isPan(value) and 1 or 0
+    if not name or name == "" then
+        text(string.format("qname %d Q-LINK %d|-1|0", k + 1, knobBank(k) * 4 + k % 4 + 1)) -- no target: the Live's number
+    elseif touched[k] or (valueUntil[k] or -1) >= ticks then
+        text(string.format("qval %d %s|%d|%d", k + 1, value, math.floor(pos), bi))
     else
-        text(string.format("qlink %d %s|%s|%d", k + 1, name, q.ValueString.value or "", math.floor(pos)))
+        text(string.format("qname %d %s|%d|%d", k + 1, name, math.floor(pos), bi))
     end
+end
+
+-- Force knob touch (notes 0x53-0x5A): value view while touched, half a second after release
+local function knobTouch(k, down)
+    touched[k] = down or nil
+    if not down then valueUntil[k] = ticks + 2 end
+    showQLink(knobQ(k))
 end
 
 local function bindKnobs()
@@ -442,7 +456,7 @@ local function listenQLinks()
                 print(string.format("ForceLink: qlink %d page %d pos=%s (%s) value=%s target=%s", i, forcePage,
                     tostring(pos), okp and type(pos) or "error", tostring(q.ValueString.value), tostring(q.TargetName.value)))
             end
-            showQLink(i, true)
+            showQLink(i)
         end, deviceName)
     end
     bindKnobs()
@@ -579,6 +593,7 @@ local function move(dir)
 end
 
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
+    if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, velocity > 0) end
     if channel == 9 and note >= PAD0 and note < PAD0 + PADS then
         local i = note - PAD0
         if mode == "step" then
@@ -616,6 +631,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
 end
 
 function ForceLink.HandleMIDINoteOff(channel, note, velocity)
+    if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, false) end
     if channel == 0 and note == BTN.shift then shift = false end
     if channel == 0 and note == BTN.knobs and qlinkHeld then
         local q = mpc.controlSurface.qlink
@@ -641,6 +657,9 @@ function ForceLink.HandleTimer()
         end
     end
     if ticks % 8 == 0 then padCache = {}; ledCache = {} end -- resend everything every 2 s (the link may have reconnected)
+    for k = 0, 7 do                                   -- value view ended: back to the name
+        if valueUntil[k] and valueUntil[k] < ticks and not touched[k] then valueUntil[k] = nil; showQLink(knobQ(k)) end
+    end
     if ticks % 16 == 0 then for k = 0, 7 do showQLink(knobQ(k)) end end -- and the OLEDs every 4 s
     paintAll()
 end

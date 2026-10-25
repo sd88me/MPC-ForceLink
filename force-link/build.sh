@@ -1,8 +1,10 @@
 #!/bin/sh
 # armhf build in Docker + QEMU (same toolchain image as force-shadow). Output: ./forcelink, ./flsurf, ./forcelink-switch.so
-# The OLED font header is generated from the local MPC binary (MPC_BIN, default ../local/MPC); it is never committed.
+# The OLED font headers are generated locally and never committed: flfont_mpc.h from your MPC binary (MPC_BIN,
+# default ../local/MPC), flfont_big.h from a capture of the real Force (QLINK_CAPTURE, default ../local/captures/qlinks.bin).
 cd "$(dirname "$0")"
 python3 gen_mpc_font.py "${MPC_BIN:-../local/MPC}" flfont_mpc.h || exit 1
+python3 gen_big_font.py "${QLINK_CAPTURE:-../local/captures/qlinks.bin}" flfont_big.h || exit 1
 docker run --rm --platform linux/arm/v7 -v "$PWD":/build -w /build arm32v7/debian:stretch bash -c '
   printf "deb http://archive.debian.org/debian stretch main\ndeb http://archive.debian.org/debian-security stretch/updates main\n" > /etc/apt/sources.list
   apt-get -o Acquire::Check-Valid-Until=false update -qq && apt-get install -y -qq gcc libc6-dev libasound2-dev >/dev/null &&

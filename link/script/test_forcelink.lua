@@ -90,7 +90,7 @@ check("arrows: only DOWN lit", has(sent, "CC 113 1") and has(sent, "CC 112 0"))
 check("empty slot painted off", has(sent, padMsg(9, 0, 0, 0)))
 check("page 1: knob 1 -> Q-link 12, knob 4 -> 0, knob 5 -> 13", has(calls, "qlink 16->12") and has(calls, "qlink 19->0")
       and has(calls, "qlink 20->13"))
-check("OLED 1 shows the Live III's knob 1 of bank 1 (Q-link 12)", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q12|12|96"))
+check("OLED 1 shows the Live III's knob 1 of bank 1 (Q-link 12)", has(sent, string.char(0x7D, 0x46) .. "qname 1 Q12|96|0"))
 
 sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)            -- pad row 1 col 0
@@ -108,7 +108,17 @@ sent = {}
 clips[0][1].State:set(2)                               -- Playing
 check("playing clip bright red", has(sent, padMsg(8, 102, 0, 0)))
 qlinks[4].ValueString:set("50%")                       -- bank 1, knob 3 (Q-link 4 * (3 - 2) + 0)
-check("Q-link value change redraws only the bar of OLED 3", has(sent, string.char(0x7D, 0x46) .. "bar 3 Q4 32"))
+check("Q-link value change redraws OLED 3 (name view)", has(sent, string.char(0x7D, 0x46) .. "qname 3 Q4|32|0"))
+-- touching a Force knob shows the value view; pan values get a centre bar; half a second after release, the name
+sent = {}
+ForceLink.HandleMIDINoteOn(0, 0x53, 127)
+check("touch knob 1: value view", has(sent, string.char(0x7D, 0x46) .. "qval 1 12|96|0"))
+qlinks[12].ValueString:set("12L")
+check("pan value: centre bar", has(sent, string.char(0x7D, 0x46) .. "qval 1 12L|96|1"))
+ForceLink.HandleMIDINoteOff(0, 0x53, 0); sent = {}
+ForceLink.HandleTimer(); ForceLink.HandleTimer(); ForceLink.HandleTimer()
+check("released: back to the name view", has(sent, string.char(0x7D, 0x46) .. "qname 1 Q12|96|1"))
+qlinks[12].ValueString:set("12")
 -- a Live III knob turning does not move the Force's page (no following)
 calls = {}
 qlinks[3].ValueString:set("9.7"); ForceLink.HandleTimer()
@@ -167,9 +177,9 @@ sent, calls = {}, {}
 qlinks[14].TargetName:set("")                           -- no target: shown by the Live III's number
 ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)
 check("KNOBS: page 2, knobs 1, 2, 5 = Q-links 14, 10, 15", has(calls, "qlink 16->14") and has(calls, "qlink 20->15")
-      and has(sent, string.char(0x7D, 0x46) .. "qlink 2 Q10|10|80")
-      and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q15|15|120"))
-check("an empty Q-link shows the Live III's number (page 2 knob 1 = Q-LINK 9)", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q-LINK 9|"))
+      and has(sent, string.char(0x7D, 0x46) .. "qname 2 Q10|80|0")
+      and has(sent, string.char(0x7D, 0x46) .. "qname 5 Q15|120|0"))
+check("an empty Q-link shows the Live III's number (page 2 knob 1 = Q-LINK 9)", has(sent, string.char(0x7D, 0x46) .. "qname 1 Q-LINK 9|-1|0"))
 ForceLink.HandleMIDINoteOn(0, 0x31, 127); ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)
 ForceLink.HandleMIDINoteOff(0, 0x31, 0)
 check("SHIFT + KNOBS holds the MPC Q-LINK button, release on KNOBS up", qbtn[1] == "hold" and qbtn[2] == "release")

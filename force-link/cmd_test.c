@@ -28,5 +28,7 @@ int main(void) {
     nmsg = 0; fl_cmd("track 2 Top Loop|90", cap, NULL); CHECK(nmsg == 1 && last[7] == 1 && lastn == 12 + 586 + 1, "track cmd -> full frame disp 1");
     fl_cmd("hdr TRACK|Drum Loop", cap, NULL); CHECK(last[7] == 16, "hdr cmd -> display 16");
     fl_cmd("bar 4 Pads 100", cap, NULL); CHECK(last[7] == 3 && last[8] == 2 && last[9] == 3, "bar cmd -> pages 2-3 only");
+    nmsg = 0; fl_cmd("qval 2 -INF dB|0|0", cap, NULL); CHECK(nmsg == 1 && last[7] == 1 && lastn == 12 + 586 + 1, "qval -> full frame disp 2");
+    nmsg = 0; fl_cmd("qname 3 PAN|64|1", cap, NULL); CHECK(nmsg == 1 && last[7] == 2, "qname -> full frame disp 3");
     printf(fails ? "FAILED\n" : "all ok\n"); return fails != 0;
 }
