@@ -422,7 +422,8 @@ local function bindKnobs()
     local n = mpc.controlSurface.qlinks.GetNumQLinks()
     for k = 0, 7 do
         if m.RemoveInfiniteCCToQLink then m.RemoveInfiniteCCToQLink(0, 0x10 + k) end
-        dev.mappings.script.AddCCToScript(0, 0x10 + k)       -- turns go through HandleMIDICC (clamped steps)
+        -- MPC's own relative Q-link handling (as for a real Force); flsurf caps each step at 1
+        if knobQ(k) < n then m.AddInfiniteCCToQLink(0, 0x10 + k, knobQ(k)) end
         if knobQ(k) < n then showQLink(knobQ(k)) end
     end
 end
@@ -623,27 +624,7 @@ function ForceLink.HandleMIDINoteOff(channel, note, velocity)
     end
 end
 
--- Force knobs (CC 0x10-0x17, relative: 1-63 up, 65-127 down). The controller sends large steps when turned fast and
--- MPC's own relative Q-link turns wrap at the ends, so the script sets the position itself: each message moves it by
--- at most 3, clamped to 0-127. While a knob is being turned (within 1 s) it continues from the position it last set,
--- so a late GetPosition cannot make it jump back.
-local knobPos, knobTick = {}, {}
-function ForceLink.HandleMIDICC(channel, cc, value)
-    if channel ~= 0 or cc < 0x10 or cc > 0x17 or value == 0 or value == 64 then return end
-    local d = value < 64 and value or value - 128
-    if d > 3 then d = 3 elseif d < -3 then d = -3 end
-    local i = knobQ(cc - 0x10)
-    local q = mpc.controlSurface.qlinks[i]
-    if not q or not q.SetPosition then return end
-    local p = knobPos[i]
-    if not p or (knobTick[i] or -100) < ticks - 4 then
-        local ok, gp = pcall(q.GetPosition)
-        p = (ok and type(gp) == "number") and gp or 64
-    end
-    p = math.max(0, math.min(127, math.floor(p + d)))
-    knobPos[i], knobTick[i] = p, ticks
-    pcall(q.SetPosition, p)
-end
+function ForceLink.HandleMIDICC(channel, cc, value) end
 
 function ForceLink.HandleMIDISysex(bytes) end
 

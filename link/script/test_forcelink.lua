@@ -88,7 +88,8 @@ check("stopped clip painted dim red (row 1 col 0)", has(sent, padMsg(8, 19, 0, 0
 check("row launch 2 dim (row has a clip), 1 off", has(sent, "CC 57 1") and has(sent, "CC 56 0"))
 check("arrows: only DOWN lit", has(sent, "CC 113 1") and has(sent, "CC 112 0"))
 check("empty slot painted off", has(sent, padMsg(9, 0, 0, 0)))
-check("Force knobs CC 0x10..0x17 go to the script", has(calls, "cc 16") and has(calls, "cc 23"))
+check("page 1: knob 1 -> Q-link 12, knob 4 -> 0, knob 5 -> 13", has(calls, "qlink 16->12") and has(calls, "qlink 19->0")
+      and has(calls, "qlink 20->13"))
 check("OLED 1 shows the Live III's knob 1 of bank 1 (Q-link 12)", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q12|12|96"))
 
 sent, calls = {}, {}
@@ -108,17 +109,10 @@ clips[0][1].State:set(2)                               -- Playing
 check("playing clip bright red", has(sent, padMsg(8, 102, 0, 0)))
 qlinks[4].ValueString:set("50%")                       -- bank 1, knob 3 (Q-link 4 * (3 - 2) + 0)
 check("Q-link value change redraws only the bar of OLED 3", has(sent, string.char(0x7D, 0x46) .. "bar 3 Q4 32"))
--- Force knob turns: clamped position steps on the knob's Q-link; page 1 = banks 1 + 2, knob 5 = bank 2's knob 1
-ForceLink.HandleMIDICC(0, 0x10, 1); ForceLink.HandleMIDICC(0, 0x14, 0x7F); ForceLink.HandleMIDICC(0, 0x10, 40)
-check("knob 1: Q-link 12 96 -> 97, knob 5: Q-link 13 104 -> 103, fast turn +3 from the last set (100)",
-      twists[1] == "12=97" and twists[2] == "13=103" and twists[3] == "12=100")
-twists = {}; for _ = 1, 20 do ForceLink.HandleMIDICC(0, 0x10, 3) end
-check("turning past the end stops at 127 (no wrap)", twists[#twists] == "12=127")
--- a Live III knob turning does not move the Force's page
-ForceLink.HandleTimer(); sent = {}
+-- a Live III knob turning does not move the Force's page (no following)
+calls = {}
 qlinks[3].ValueString:set("9.7"); ForceLink.HandleTimer()
-twists = {}; ForceLink.HandleMIDICC(0, 0x11, 1)
-check("Live III changes leave the Force page alone (knob 2 = Q-link 8)", twists[1] == "8=65")
+check("Live III changes leave the Force's Q-link mapping alone", not has(calls, "qlink "))
 
 -- NOTE mode: pads go to MPC pad quadrants; bottom-left Force pad (row 7 col 0) = MPC pad 0, bottom-left quadrant
 sent, calls = {}, {}
@@ -172,7 +166,8 @@ mpc.controlSurface.qlink = {Hold = function() qbtn[#qbtn + 1] = "hold" end, Rele
 sent, calls = {}, {}
 qlinks[14].TargetName:set("")                           -- no target: shown by the Live III's number
 ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)
-check("KNOBS: page 2, knobs 1, 2, 5 = Q-links 14, 10, 15", has(sent, string.char(0x7D, 0x46) .. "qlink 2 Q10|10|80")
+check("KNOBS: page 2, knobs 1, 2, 5 = Q-links 14, 10, 15", has(calls, "qlink 16->14") and has(calls, "qlink 20->15")
+      and has(sent, string.char(0x7D, 0x46) .. "qlink 2 Q10|10|80")
       and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q15|15|120"))
 check("an empty Q-link shows the Live III's number (page 2 knob 1 = Q-LINK 9)", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q-LINK 9|"))
 ForceLink.HandleMIDINoteOn(0, 0x31, 127); ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)

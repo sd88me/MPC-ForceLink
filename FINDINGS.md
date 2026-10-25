@@ -462,3 +462,7 @@ confirmed by the user: bank 1 = Cut Off, Resonance, Env Mod, Decay = 12, 8, 4, 0
 Q-link changes on its own. `qlinks[i].GetPosition()` follows the value (0-127)
 when the Live III's knob turns. The Force knobs' relative CCs reach large steps when turned fast; applying them in
 full (AddInfiniteCCToQLink) made values jump and wrap, so the script now twists with each step capped at 3.
+- (2026-10-25, later) `GetPosition()` returns the previous value (one change behind), so a script cannot step the
+  position itself reliably; `Twist` wraps at the ends. Back to MPC's own infinite-CC mapping, with flsurf capping each
+  knob step at +1 / -1 (raw steps were 1-5 when turned fast; one stray opposite step seen). Some plugins page their
+  Q-links (a "PAGE" Q-link changes every target), which also looks like jumping.

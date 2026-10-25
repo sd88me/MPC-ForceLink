@@ -96,9 +96,15 @@ static size_t up_filter(upfilt_t *f, const uint8_t *b, size_t n, uint8_t *out) {
         int need = (f->st & 0xF0) == 0xC0 || (f->st & 0xF0) == 0xD0 ? 1 : 2;
         if (f->mn < need) continue;
         f->mn = 0;
-        // Q-link knobs (CC 0x10-0x17) already arrive as relative steps after flsurf's handshake (1, 2 ... up,
-        // 127, 126 ... down; seen on the device 2026-10-24), which is MPC's infinite-CC format: passed unchanged.
+        // Q-link knobs (CC 0x10-0x17) arrive as relative steps (1-5 up, 127.. down; device 2026-10-25), MPC's
+        // infinite-CC format. Fast turns send steps up to 5, which MPC applies in full (values jumped), so each
+        // step is capped at 1 (2026-10-25): MPC's own Q-link handling then behaves like a real Force's knobs.
         uint8_t d0 = f->m[0];
+        if ((f->st & 0xF0) == 0xB0 && d0 >= 0x10 && d0 <= 0x17 && need == 2) {
+            uint8_t v = f->m[1];
+            if (v >= 1 && v <= 63) f->m[1] = 1;
+            else if (v >= 65) f->m[1] = 127;
+        }
         if (note_layout && (f->st == 0x99 || f->st == 0x89 || f->st == 0xA9) && d0 >= 54 && d0 <= 117) {
             int i = d0 - 54;
             d0 = (uint8_t)(36 + (7 - i / 8) * 8 + i % 8);
