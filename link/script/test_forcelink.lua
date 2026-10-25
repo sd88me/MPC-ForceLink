@@ -182,6 +182,16 @@ ForceLink.HandleMIDINoteOn(0, 0x03, 127)
 check("MATRIX again: clip pad repainted", has(sent, padMsg(8, 102, 0, 0)))
 
 -- STEP SEQ from real note data (the library patch, stepsnap): mock the library's side of the conversation
+-- clip creation, the Live III's last hit pad, Press / Release
+local selCol, selRow, createdClips, selectedClips = 5, 5, {}, {}
+mpc.clipMatrix.GetSelectedClipColumn = function() return selCol end
+mpc.clipMatrix.GetSelectedClipRow = function() return selRow end
+mpc.clipMatrix.CreateClip = function(c, r) createdClips[#createdClips + 1] = c .. "," .. r; return true end
+mpc.clipMatrix.SelectClip = function(c, r) selectedClips[#selectedClips + 1] = c .. "," .. r end
+local liveHit, presses, releases = 1, {}, {}
+mpc.controlSurface.pads.LastHitPad = function() return liveHit end
+mpc.controlSurface.pads.Press = function(i, v) presses[#presses + 1] = i .. "@" .. v end
+mpc.controlSurface.pads.Release = function(i) releases[#releases + 1] = i end
 local modeReq = 0
 mpc.engineMode = {CurrentMode = prop("Grid View"), RequestModeChange = function() modeReq = modeReq + 1 end}
 local evN, evcalls = 5, {}
@@ -238,6 +248,25 @@ reply(6, {})
 ForceLink.HandleMIDINoteOn(9, 54 + 5, 20)                       -- step 6, pad 2
 check("stepsnap: a chosen level fixes the entry velocity (16 = full)", evcalls[#evcalls] == "create 36 1200 1.000 120 100")
 ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16 again: back to the tapped velocity
+ForceLink.HandleTimer()
+presses, releases = {}, {}
+ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 4, 100)              -- level 1 (bottom-left of the bottom-right pads)
+ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16
+ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16 again
+check("stepsnap: a level pad presses the selected pad (2) with that level's velocity", presses[1] == "2@8" and presses[2] == "2@127")
+ForceLink.HandleTimer()
+check("stepsnap: and releases it on the next timer tick", #releases == 3 and releases[1] == 2)
+-- the Live III's own pad hits move the page to that pad
+ForceLink.HandleTimer()                                         -- a hit we made ourselves is not the Live III's
+liveHit = 5                                                      -- a Live III pad 5 (A05 = note 40)
+sent = {}
+ForceLink.HandleTimer()
+check("stepsnap: a pad hit on the Live III (pad 5) moves the page to its note 40", has(sent, string.char(0x7D, 0x53, 0x01, 40)))
+liveHit = 5; sent = {}
+ForceLink.HandleTimer()
+check("stepsnap: the same pad again changes nothing (no new view sent)", not has(sent, string.char(0x7D, 0x53, 0x01)))
+ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)              -- back to pad 2 (note 36) on the Force
+liveHit = 2; ForceLink.HandleTimer()
 for _ = 1, 22 do ForceLink.HandleTimer() end                    -- no answers for 5 s: the legacy page again
 stepTaps[#stepTaps + 1] = 0
 ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
@@ -252,6 +281,7 @@ mpc.tracks.currentTrack.Type:set("Drum")
 sent = {}
 ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- STEP SEQ with the library there: no mode request
 check("stepsnap: with the library there MPC's mode is left alone", modeReq == 0)
+check("STEP SEQ on an empty clip slot creates a clip there and selects it", createdClips[#createdClips] == "5,5" and selectedClips[#selectedClips] == "5,5")
 check("stepsnap: and the view (pad 2 = note 36) is sent at once", has(sent, string.char(0x7D, 0x53, 0x01, 36)))
 ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x04, 1, 37, 0, 5, 0, 0, 0, 34, 24))     -- notes: 37 x5; last note ends at 4440
 sent = {}

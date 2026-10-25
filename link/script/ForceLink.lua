@@ -490,9 +490,40 @@ local function toggleStep(st, tapVel)
     sendView(true)
 end
 
+-- Press(index, velocity) is documented to take the velocity; Tap(index, velocity) seemed to ignore it (all 16 levels
+-- sounded alike), so the pad is pressed now and released on the next timer tick
+local pendingRelease = {}
+local ourHit            -- the pad number (1-based) we last pressed ourselves, to tell the Live III's own hits apart
 local function playSelected(level)
-    local vel = math.max(1, math.floor(127 * level / 16))
-    call(mpc.controlSurface.pads.Tap, padIndex1(selectedPad), vel)
+    local vel = math.max(1, math.min(127, math.floor(127 * level / 16 + 0.5)))
+    local pads = mpc.controlSurface.pads
+    local idx = padIndex1(selectedPad)
+    ourHit = idx
+    if pads.Press and pads.Release then
+        call(pads.Press, idx, vel)
+        pendingRelease[#pendingRelease + 1] = idx
+    else
+        call(pads.Tap, idx, vel)
+    end
+end
+
+-- the Live III's last hit pad (MPC pads, 1-based like Tap): the page follows it, so notes played or overdubbed there show
+local lastHit
+local function followLiveHit()
+    local lh = call(mpc.controlSurface.pads.LastHitPad)
+    if type(lh) ~= "number" then return end
+    if lastHit == nil then lastHit = lh; return end
+    if lh ~= lastHit then
+        lastHit = lh
+        local p, ours = lh - 1, (lh == ourHit)
+        ourHit = nil
+        if not ours and p >= 0 and p <= 15 and p ~= selectedPad then
+            selectedPad = p
+            print("ForceLink: following the Live III's pad " .. lh)
+            sendView(true)
+            pollEvents()
+        end
+    end
 end
 
 local function stepPadPressed(i, vel)
@@ -564,10 +595,23 @@ local function mapPads(toNotes)
     end
 end
 
+-- Like the Force: STEP SEQ on an empty clip slot makes a clip there
+local function ensureClip()
+    local cm = mpc.clipMatrix
+    if not cm or not cm.GetSelectedClipColumn or not cm.CreateClip then return end
+    local col, row = call(cm.GetSelectedClipColumn), call(cm.GetSelectedClipRow)
+    if type(col) ~= "number" or type(row) ~= "number" or col < 0 or row < 0 then return end
+    if call(cm.HasClip, col, row) then return end
+    local ok = call(cm.CreateClip, col, row)
+    print(string.format("ForceLink: no clip at %d,%d: CreateClip -> %s", col, row, tostring(ok)))
+    if ok ~= false then call(cm.SelectClip, col, row) end
+end
+
 local function setMode(newMode)
     if newMode == mode then return end
     if (newMode == "note") ~= (mode == "note") then mapPads(newMode == "note") end
     mode = newMode
+    if mode == "step" then ensureClip() end
     if mode == "step" and snap.on and padNote(selectedPad) then
         -- the real-data page needs MPC in a pad mode, not its own step mode (there its pads are step buttons and
         -- its pad lights step lights): leave the mode alone, and start the conversation with the library
@@ -875,8 +919,13 @@ function ForceLink.HandleMIDICC(channel, cc, value) end
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    for i = #pendingRelease, 1, -1 do
+        call(mpc.controlSurface.pads.Release, pendingRelease[i])
+        table.remove(pendingRelease, i)
+    end
     if snap.on then
         if mode == "step" then
+            followLiveHit()
             sendView(false)
             pollEvents()
         end
