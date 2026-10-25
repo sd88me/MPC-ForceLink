@@ -54,18 +54,22 @@ subscription (note, window, 32 steps) with per-step velocities by sysex on the F
 Force's page (FINDINGS 23) and edits with `CreateNoteEvent` / `DeleteEvent` (own string, or MPC's own encoder's string
 fetched by the library for notes MPC already held). The page is sticky (chosen on entry: library + drum track + pad bank
 A -> real-data page, else the old MPC-step-button page).
-**Open in STEP SEQ (the user said "still not perfect"):**
-1. Last hand test (before the final fix): 16 levels all sounded the same (velocity now sent as float 0-1: re-test;
-   else MPC's FullLevel); bottom-left quadrant did not select pads and "random notes" appeared (cause found: the page
-   flipped to the old MPC-step-button page; now sticky; if random notes persist, check the new per-press log line
-   `recording= overdub= playing=`: pad hits from the Force are recorded when MPC records/overdubs).
-2. Only drum pad bank A with MPC's default note numbers (A01 = 37, A02 = 36, A03 = 42, A04 = 82, ...); other banks / custom
-   note maps show a dim page. Needs the program's pad->note map (not in the script API: read it from MPC's memory like
-   the events, or learn it).
-3. No green playhead step (a clip's own length/position is not readable by scripts; the global playhead is not the clip's).
-4. Clip length of an auto-created clip, and whether `DeleteEvent` with MPC's own string removes exactly that note, are
-   unverified (the log lines `step N - note X at T (MPC's string): true/false` say).
-5. Melodic STEP SEQ lanes, the in-key NOTE layout and the track's real scale/root are not done.
+**Status (hand test 2026-10-25, last build): works.** Bottom-left quadrant selects pads, the right quadrant's 16 levels
+play at different velocities, entering steps works, overdubbed Live III hits show on the page.
+Fixed in the last round: MPC hands our own `pads.Press` back to the script as a ch9 pad note (note = the pressed pad's
+1-based number), which toggled steps; those echoes are now ignored for 2 ticks after our press, and note-offs are ignored.
+This kit's pads A01-A16 are notes 36-51 in order (device log: pads 1-3 = 36, 37, 38), not MPC's classic 37/36/42/82...;
+`DEFAULT_NOTES` follows that. Pads past 3 are assumed, not confirmed.
+**Still open:**
+1. The pad->note map is assumed (36 + pad), pad bank A only; other banks / custom or non-sequential kits show wrong lanes
+   or a dim page. Fix: learn it at runtime (play a pad while the library reports the new note in the list, log lines
+   `notes in the list:`) or read it from MPC's memory like the events.
+2. No playhead step. Skipped on purpose: the clip's own length/position is unreadable by scripts and a global-playhead
+   modulo would drift on clips with other lengths. Only worth building once the clip length can be read from memory.
+3. Unverified: the length of an auto-created clip; `DeleteEvent` with MPC's own string removing exactly the right note
+   (log: `step N - note X at T (MPC's string): true/false`).
+4. Melodic STEP SEQ lanes, the in-key NOTE layout and the track's real scale/root are not done.
+5. Diagnostic logging is on (`events:`, `notes in the list:`, `ch9 note`, `pad ... pressed`): noisy, thin out once stable.
 
 ## Not tested by hand yet (built and deployed 2026-10-25)
 Q-link value view (large font) and pan bars; melodic NOTE; 16-level float velocity; the final sticky-page build.
