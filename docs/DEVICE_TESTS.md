@@ -41,15 +41,20 @@ Compare with the Force's own MPC (stock) if anything looks off: name size, bar p
 | 4.3 | Change the Live III's pad bank, hit the same Force pads | same sounds as 4.2 (independent of the Live III's bank) |
 | 4.4 | Select a keygroup/plugin track | pads play plain chromatic notes as before (melodic layout not done yet: see 7) |
 
-## 5. STEP SEQ (fixes from before, never tested)
-Live III: 16 LEVELS off. Force: STEP SEQ on a drum track with a 2-bar sequence.
+## 5. STEP SEQ (rebuilt 2026-10-25 on real note data; the library patch is deployed, the page not yet tried)
+Force in link, a drum track whose clip has a few notes (Live III on that track). See link/HANDOFF_LINK.md ("STEP SEQ
+rebuilt") for what each log line means.
 | # | Do | Expect |
 |---|---|---|
-| 5.1 | Look | top 4 rows = 32 steps (2 bars); bar B not blank when the playhead is in bar A |
-| 5.2 | Tap steps in both bars, stopped and playing | the step you tapped toggles, in the right bar |
-| 5.3 | Bottom-left 4x4 | selects the pad you edit; it is lit |
-| 5.4 | Bottom-right 4x4 | plays the selected pad at 16 velocities |
-| 5.5 | LEFT / RIGHT | page through bar pairs |
+| 5.1 | Press STEP SEQ | within ~1 s: rows 0-3 show the clip's steps of the selected pad (set = orange-red by velocity, empty = very dim pad colour); bottom-left = pads (selected white), bottom-right = the velocity gradient |
+| 5.2 | Tap an empty step | the note appears in MPC at that step, the Force lights it (harder tap = redder) |
+| 5.3 | Tap it again | it is removed |
+| 5.4 | Tap a step MPC already had | it is removed (via MPC's step button) |
+| 5.5 | Tap steps in the second bar, LEFT / RIGHT | right bar, right steps |
+| 5.6 | Select another pad | the steps shown change to that pad's |
+| 5.7 | Tap a level pad, then add a step | the new step has that level's velocity; tap the level again to release |
+| 5.8 | Press PLAY | a green step follows the playhead; the page follows into the next bar pair |
+[logs: Live III `journalctl -u acvs | grep ForceLink`, `/tmp/forcespoof.log` for `stepsnap:` lines]
 
 ## 6. Reading sequence data (`#GetState` probe)
 Put 2-3 notes in the current sequence, then on the Force: SHIFT + STEP SEQ. Nothing visible happens except a short

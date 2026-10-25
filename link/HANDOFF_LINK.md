@@ -122,3 +122,61 @@ answering its controller after SHIFT + NOTE (restart fixed it).
    (not readable from scripts).
 Q-link diagnostics removed from the script. Deploy: `forcelink install`, then `forcelink link` (restarts MPC on the
 Live III and flsurf on the Force).
+
+## STEP SEQ rebuilt on real note data (built 2026-10-25, DEPLOYED to the Live III the same day; page not yet tried by hand)
+
+**What it is.** The real Force's STEP SEQ page (FINDINGS 23) driven by the notes MPC actually holds, not by MPC's 16
+step lights. Layout (Force rows from the top): rows 0-3 = 32 steps (bars A + B), an empty step is the selected pad's colour
+at 5 %, a set step is coloured by its velocity (yellow-orange soft to red full, the real Force's gradient), the
+playhead step is green; rows 4-7 cols 0-3 = the 16 pads of bank A (selected = white, others 25 % of their colour);
+cols 4-7 = the 16 velocity levels (same gradient). LEFT / RIGHT page bar pairs; while playing the page follows the playhead.
+
+**How it works (three parts).**
+1. `spoof/stepsnap.c` (in the Live III shim, link mode only): patches the tail of `events.GetSize()` (FINDINGS 27) so that
+   every time the script calls it, the list MPC just looked up is walked and answered on the Force Link port. Replies are
+   sysex `F0 7D 53 ...` (protocol in `spoof/stepsnap.h`): `03` hello, `02` the 32 velocities of the subscribed note,
+   `04` the notes in the list. Safety: patch only if the 13 words at 0x2f939a0 are exactly 3.10.0.49's
+   (`spoof/check_orig.py`); all reads fault-safe; a crash guard (`/data/mpc-addins/forcespoof/stepsnap.guard`, counts starts
+   that did not survive 30 s, disables the patch at 2); `touch /data/mpc-addins/forcespoof/stepsnap.off` switches it off.
+2. `link/script/ForceLink.lua`: in STEP mode it subscribes (`F0 7D 53 01 note start step n`) and every 250 ms calls
+   `GetSize()` on the selected clip's events and the sequence's (that is what makes the library read). The page is drawn from
+   the answers; if no answer for 5 s, off a drum track, or not bank A, the OLD page (MPC's step lights) is used.
+3. Editing: an empty step -> `events.CreateNoteEvent(note, tick, velocity/127, 120, 100)` (inserts the note; the tapped
+   velocity, or the fixed level); a set step that this script created -> `events.DeleteEvent(<its encoded string>)`; a set
+   step that MPC already had -> MPC's own step button (`stepSequencer.Tap`, needs that bar to be MPC's step view; the old
+   JumpToPulse mechanism). Tapping a level pad fixes the entry velocity to that level (tap it again to release); tapping a
+   pad selects it (and plays it). Every edit logs one `ForceLink: step ...` line.
+
+**Deployed state (checked on the device 2026-10-25).** `forcespoof.so` and `ForceLink.lua` match the build; the shim log
+(`/tmp/forcespoof.log` on the Live III) shows `stepsnap: patched events.GetSize() at 0xaaaaada339bc` and a first read
+(`list ...: 0 events`); MPC ran 30+ s with no restart, the guard cleared itself. The Force side is unchanged.
+
+**Things that are assumptions until tried (check in this order).**
+1. Time base: event times are assumed to start at 0 at the start of the clip (`STEP_ORIGIN = 0` in the script). The shim
+   logs the first 8 notes of every list it reads (`stepsnap:   time T note N vel V len L`): if the steps do not line up with
+   what MPC shows, compare those times with the steps and set `STEP_ORIGIN`.
+2. `CreateNoteEvent`'s velocity is passed as 0-1 (like `SetNoteVelocity`'s "normalised float"): if added steps come out
+   very quiet or loud, it takes 0-127 instead (the script log line shows the value).
+3. `DeleteEvent` with the string `CreateNoteEvent` returned: expected to remove exactly that note. Notes MPC already
+   held are removed with MPC's step button; if that misbehaves the fix is the encoded format (FINDINGS 27) or deleting
+   via the library.
+4. Only bank A of the drum program, with MPC's default note numbers (A01 = 37, A02 = 36, A03 = 42 ...): a program with
+   other note assignments shows other pads' steps. `pads.CurrentBank` other than 0 uses the old page.
+5. The replies come back as sysex on the Force Link seq port and need `SetHandleSysex(true)`: if the log never shows
+   `ForceLink: stepsnap active`, the sysex path is the problem, not the patch.
+
+**Device test (docs/DEVICE_TESTS.md section 5, rewritten).** Force in link, a drum track with a clip that has a few
+notes, Live III on the clip's track:
+1. Press STEP SEQ. Within ~1 s the page should show the real steps (set ones red-orange, others very dim). The Live III
+   log (`journalctl -u acvs | grep ForceLink`) says `stepsnap active`; the shim log lists the clip's first notes.
+2. Tap an empty step: a note appears in MPC at that step (and the Force lights it with the velocity you tapped). Tap it
+   again: it goes. Try both bars and LEFT / RIGHT.
+3. Tap another pad (bottom-left 4x4): the steps shown change to that pad's; tap a level pad: new steps get that velocity.
+4. Play: the green step follows the playhead; the page follows into bar 2.
+Report what differs; the logs (`ForceLink: step ...`, `stepsnap: ...`) say where.
+
+**If MPC misbehaves after this deploy:** `touch /data/mpc-addins/forcespoof/stepsnap.off` and restart MPC, or
+`./forcelink stock`; two crashes disable the patch by themselves.
+
+**Next after this:** read the track's real note numbers for pads beyond A01-A16 / other programs; melodic STEP SEQ lanes;
+the in-key NOTE layout (needs the track's scale/root from memory too: same technique, another function).

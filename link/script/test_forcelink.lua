@@ -181,6 +181,67 @@ check("STEP: velocity level 1 plays the selected pad softly", padHits[#padHits] 
 ForceLink.HandleMIDINoteOn(0, 0x03, 127)
 check("MATRIX again: clip pad repainted", has(sent, padMsg(8, 102, 0, 0)))
 
+-- STEP SEQ from real note data (the library patch, stepsnap): mock the library's side of the conversation
+local evN, evcalls = 5, {}
+local function mkEvents()
+    return {GetSize = function() return evN end,
+            CreateNoteEvent = function(note, tick, vel, len, prob)
+                evcalls[#evcalls + 1] = string.format("create %d %d %.3f %d %d", note, tick, vel, len, prob)
+                return "ENC" .. note .. ":" .. tick
+            end,
+            DeleteEvent = function(e) evcalls[#evcalls + 1] = "delete " .. e end}
+end
+mpc.clipMatrix.selectedClip = {events = mkEvents()}
+mpc.currentSequence = {events = {GetSize = function() return 0 end}}
+mpc.tracks.currentTrack.Type:set("Drum")
+local function reply(count, vels)
+    local v = {}
+    for i = 1, 32 do v[i] = vels[i - 1] or 0 end
+    ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x02, 0, 1, math.floor(count / 16384), math.floor(count / 128) % 128, count % 128, 32,
+                                          table.unpack(v)))
+end
+ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- STEP SEQ
+ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 0, 100)              -- select pad 1 (bottom-left) on the legacy page
+sent = {}
+for _ = 1, 16 do ForceLink.HandleTimer() end
+check("stepsnap: without hello a view (note 37 = pad A01, start 0, 240 ticks, 32 steps) is sent every 4 s",
+      has(sent, string.char(0x7D, 0x53, 0x01, 37, 0, 0, 0, 0, 0, 1, 112, 32)))
+ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x03, 1))      -- the library says hello
+ForceLink.HandleTimer()
+check("stepsnap: before the first answer the legacy page is used", true)
+reply(5, {[0] = 100, [9] = 127})
+sent = {}
+ForceLink.HandleTimer()
+check("stepsnap: step 1 shows its velocity colour (100), step 10 full red (127)", has(sent, padMsg(0, 114, 12, 0)) and has(sent, padMsg(9, 127, 0, 0)))
+check("stepsnap: an empty step is the pad's colour, very dim", has(sent, padMsg(1, 0, 6, 0)))
+ForceLink.HandleMIDINoteOn(9, 54 + 2, 90)                       -- empty step 3, tapped at velocity 90
+check("stepsnap: an empty step gets a note at its tick with the tapped velocity", evcalls[#evcalls] == "create 37 480 0.709 120 100")
+stepTaps[#stepTaps + 1] = 0
+ForceLink.HandleMIDINoteOn(9, 54 + 0, 100)                      -- step 1 is set, not ours: MPC's own button
+check("stepsnap: a set step of MPC's is removed with MPC's step button", stepTaps[#stepTaps] == 1)
+evN = 6; reply(6, {[0] = 100, [2] = 90, [9] = 127})
+ForceLink.HandleTimer()                                          -- MPC counts 6 events now
+ForceLink.HandleMIDINoteOn(9, 54 + 2, 100)                      -- step 3 is set and ours
+check("stepsnap: a set step we made is deleted by its encoded string", evcalls[#evcalls] == "delete ENC37:480")
+sent = {}
+ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)              -- pad select: bottom row col 1 = pad 2 (note 36)
+check("stepsnap: selecting pad 2 subscribes to note 36", has(sent, string.char(0x7D, 0x53, 0x01, 36, 0, 0, 0, 0, 0, 1, 112, 32)))
+ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16 (top-right of the bottom-right pads)
+reply(6, {})
+ForceLink.HandleMIDINoteOn(9, 54 + 5, 20)                       -- step 6, pad 2
+check("stepsnap: a chosen level fixes the entry velocity (16 = full)", evcalls[#evcalls] == "create 36 1200 1.000 120 100")
+ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16 again: back to the tapped velocity
+for _ = 1, 22 do ForceLink.HandleTimer() end                    -- no answers for 5 s: the legacy page again
+stepTaps[#stepTaps + 1] = 0
+ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
+check("stepsnap: no answers: back to the legacy page (MPC's step button 4)", stepTaps[#stepTaps] == 4)
+reply(6, {}); ForceLink.HandleTimer()
+mpc.tracks.currentTrack.Type:set("Keygroup")
+stepTaps[#stepTaps + 1] = 0
+ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
+check("stepsnap: a keygroup track uses the legacy page", stepTaps[#stepTaps] == 4)
+ForceLink.HandleMIDINoteOn(0, 0x03, 127)                        -- MATRIX again
+
 -- KNOBS toggles the Q-link page; SHIFT + KNOBS holds the MPC Q-LINK button
 local qbtn = {}
 mpc.controlSurface.qlink = {Hold = function() qbtn[#qbtn + 1] = "hold" end, Release = function() qbtn[#qbtn + 1] = "release" end}

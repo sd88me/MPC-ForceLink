@@ -246,7 +246,7 @@ end
 local function padIndex1(p) return p + 1 end -- the pads API counts from 1, like the step buttons
 
 local lastLoggedBar
-local function paintStep()
+local function paintStepLegacy()
     local cur = currentBar()
     readSteps(cur)
     if cur ~= lastLoggedBar then                              -- what MPC's step lights show at each bar change
@@ -299,26 +299,205 @@ local function playSelectedPad(level)
     call(mpc.controlSurface.pads.Tap, padIndex1(selectedPad), vel)
 end
 
-local function stepPadPressed(i) -- i = Force pad index 0-63 in STEP mode
+-- a tap on MPC's own step button `step` (1-16) of bar `bar`: now if that bar is MPC's step view, else when it gets there
+local function legacyTap(bar, step)
+    if bar == currentBar() then
+        call(stepTap, step)
+    elseif call(mpc.sequencer.IsPlaying) then
+        pendingTaps[#pendingTaps + 1] = {bar, step}              -- done when the playhead reaches that bar
+    else
+        call(mpc.sequencer.JumpToPulse, bar * BAR_TICKS)         -- stopped: go to that bar; the tap waits until
+        pendingTaps[#pendingTaps + 1] = {bar, step, ticks + 2}   -- MPC's step view is there (two timer ticks)
+    end
+end
+
+local function stepPadPressedLegacy(i) -- i = Force pad index 0-63 in STEP mode
     local row, col = math.floor(i / 8), i % 8
     if row < 4 then
         local bar = pairIndex * 2 + math.floor(row / 2)
         local step = (row % 2) * 8 + col + 1
-        local cur = currentBar()
-        if bar == cur then
-            call(stepTap, step)
-        elseif call(mpc.sequencer.IsPlaying) then
-            pendingTaps[#pendingTaps + 1] = {bar, step}          -- done when the playhead reaches that bar
-        else
-            call(mpc.sequencer.JumpToPulse, bar * BAR_TICKS)     -- stopped: go to that bar; the tap waits until
-            pendingTaps[#pendingTaps + 1] = {bar, step, ticks + 2} -- MPC's step view is there (two timer ticks)
-        end
+        legacyTap(bar, step)
     elseif col < 4 then
         selectedPad = (7 - row) * 4 + col
         playSelectedPad(selectedLevel)
     else
         selectedLevel = (7 - row) * 4 + (col - 4) + 1
         playSelectedPad(selectedLevel)
+    end
+    paintStepLegacy()
+end
+
+
+-- ---- STEP SEQ from real note data (the library patch, spoof/stepsnap.c; FINDINGS 27) ------------------------------
+-- The library reads the clip's notes whenever the script asks events.GetSize(), and answers the view the script
+-- subscribes to (F0 7D 53 ...): per step of the selected pad, the velocity of its note (0 = none). The page then is the
+-- real Force's (FINDINGS 23): rows 0-3 the 32 steps (an empty step the pad's colour, very dim; a set one its velocity
+-- colour; the playhead green), rows 4-7 cols 0-3 the pads (selected: white), cols 4-7 the 16 velocity levels.
+-- Without the library (hello not received) or off a drum track in bank A, the legacy page above is used.
+local STEP_TICKS, STEP_ORIGIN = 240, 0   -- 16th note at 960 PPQ; STEP_ORIGIN: tick of step 1 of bar 1 in the event list
+local DEFAULT_NOTES = {37, 36, 42, 82, 40, 38, 46, 44, 48, 47, 45, 43, 49, 55, 51, 53} -- MPC's default A01-A16
+local snap = {on = false, byCount = {}, want = 0, src = nil, hist = {}, view = "", lastReply = -100}
+local fixedLevel                          -- nil: a new step gets the velocity it was tapped with
+local created = {}                        -- "note:tick" -> the encoded string CreateNoteEvent returned (to delete it)
+local lastViewSent = -100
+
+local function bankA()
+    local ok, b = pcall(function() return mpc.controlSurface.pads.CurrentBank.value end)
+    return not ok or b == nil or b == 0
+end
+
+local function padNote(p) return bankA() and DEFAULT_NOTES[p + 1] or nil end
+
+-- the answer for the list MPC counts now, else the latest one (right after an edit the count has moved on, the answer not yet)
+local function snapRow() return snap.byCount[snap.want] or snap.last end
+
+-- the library answers at least every 2 s while it works; without answers for 5 s the legacy page takes over
+local function useSnap() return snap.on and isDrumTrack() and padNote(selectedPad) ~= nil and ticks - snap.lastReply < 20 end
+
+local function put7(v, n) local t = {}; for i = n, 1, -1 do t[i] = v % 128; v = math.floor(v / 128) end; return string.char(table.unpack(t)) end
+local function get7(b, i, n) local v = 0; for k = 0, n - 1 do v = v * 128 + (b:byte(i + k) or 0) end; return v end
+
+local function windowStart() return STEP_ORIGIN + pairIndex * 2 * BAR_TICKS end
+
+local function sendView(force)
+    local note = padNote(selectedPad)
+    if not note then return end
+    local key = note .. ":" .. windowStart()
+    if not force and key == snap.view and ticks - lastViewSent < 16 then return end
+    if key ~= snap.view then snap.byCount, snap.last = {}, nil end     -- a row for another view must not show
+    snap.view, lastViewSent = key, ticks
+    sysex(string.char(0x7D, 0x53, 0x01, note) .. put7(windowStart(), 5) .. put7(STEP_TICKS, 2) .. string.char(32))
+end
+
+-- ask MPC for the list sizes: each call makes the library read the list and answer
+local function pollEvents()
+    local c = mpc.clipMatrix and mpc.clipMatrix.selectedClip and mpc.clipMatrix.selectedClip.events
+    local q = mpc.currentSequence and mpc.currentSequence.events
+    local nc = c and call(c.GetSize) or 0
+    local nq = q and call(q.GetSize) or 0
+    if nc > 0 then snap.want, snap.src = nc, c
+    elseif nq > 0 then snap.want, snap.src = nq, q
+    else snap.want, snap.src = 0, c or q end
+end
+
+function ForceLink.HandleMIDISysex(b)
+    if type(b) ~= "string" or b:byte(1) ~= 0x7D or b:byte(2) ~= 0x53 then return end
+    local op = b:byte(3)
+    if op == 0x03 then
+        if not snap.on then print("ForceLink: stepsnap active (library version " .. tostring(b:byte(4)) .. ")") end
+        snap.on = true
+    elseif op == 0x02 then
+        local count, ns = get7(b, 6, 3), b:byte(9) or 0
+        local row = {}
+        for i = 0, ns - 1 do row[i] = b:byte(10 + i) or 0 end
+        snap.byCount[count] = row
+        snap.last = row
+        snap.lastReply = ticks
+        snap.on = true
+    elseif op == 0x04 then
+        local h = {}
+        for i = 0, (b:byte(4) or 0) - 1 do h[b:byte(5 + i * 3)] = get7(b, 6 + i * 3, 2) end
+        snap.hist = h
+    end
+end
+
+local function velColour(v)           -- the real Force's step colour for a velocity 1-127 (8-bit values for setPad)
+    local t = v / 127
+    return (67 + 60 * t) * 2, 59 * (1 - t) * 2, 0
+end
+
+local function paintStepSnap()
+    if call(mpc.sequencer.IsPlaying) then                             -- while playing the page follows the playhead
+        local np = math.floor(currentBar() / 2)
+        if np ~= pairIndex then pairIndex = np; sendView(true) end
+    end
+    local row = snapRow() or {}
+    local pads = mpc.controlSurface.pads
+    local pr, pg, pb = hexRGB(call(pads.LightRGBColor, padIndex1(selectedPad)))
+    if pr + pg + pb == 0 and pads[selectedPad] then pr, pg, pb = argb(pads[selectedPad].Colour.value) end
+    if pr + pg + pb == 0 then pr, pg, pb = 160, 160, 160 end
+    local head
+    if call(mpc.sequencer.IsPlaying) then
+        local pos = (call(mpc.sequencer.PlayheadPosition) or 0) - windowStart()
+        if pos >= 0 then head = math.floor(pos / STEP_TICKS) end
+        if head and head > 31 then head = nil end
+    end
+    for st = 0, 31 do
+        local v = row[st] or 0
+        local r, g, b
+        if head == st then r, g, b = 0, 254, 0
+        elseif v > 0 then r, g, b = velColour(v)
+        else r, g, b = pr * 0.05, pg * 0.05, pb * 0.05 end
+        setPad(st, r, g, b)
+    end
+    for p = 0, 15 do                                                  -- pads: rows 4-7, cols 0-3
+        local prow, pcol = 7 - math.floor(p / 4), p % 4
+        local r, g, b = hexRGB(call(pads.LightRGBColor, padIndex1(p)))
+        if r + g + b == 0 and pads[p] then r, g, b = argb(pads[p].Colour.value) end
+        if r + g + b == 0 then r, g, b = 160, 160, 160 end
+        if p == selectedPad then r, g, b = 254, 254, 254 else r, g, b = r * 0.25, g * 0.25, b * 0.25 end
+        setPad(prow * 8 + pcol, r, g, b)
+    end
+    for l = 1, 16 do                                                  -- levels: rows 4-7, cols 4-7
+        local lrow, lcol = 7 - math.floor((l - 1) / 4), 4 + (l - 1) % 4
+        local r, g, b = velColour(math.floor(127 * l / 16 + 0.5))
+        if fixedLevel == l then r, g, b = 254, 254, 254 end
+        setPad(lrow * 8 + lcol, r, g, b)
+    end
+    setLed(BTN.left, pairIndex > 0 and 1 or 0)
+    setLed(BTN.right, (pairIndex + 1) * 2 < numBars() and 1 or 0)
+end
+
+local function paintStep()
+    if useSnap() then return paintStepSnap() end
+    return paintStepLegacy()
+end
+
+-- tap on step st (0-31): add a note at that tick, or remove it
+local function toggleStep(st, tapVel)
+    local note, row = padNote(selectedPad), snapRow() or {}
+    local tick = windowStart() + st * STEP_TICKS
+    local had = (row[st] or 0) > 0
+    local ev = snap.src
+    if not ev then return end
+    local key = note .. ":" .. tick
+    if not had then
+        local vel = fixedLevel and math.floor(127 * fixedLevel / 16 + 0.5) or math.max(1, tapVel or 100)
+        local ok, enc = pcall(ev.CreateNoteEvent, note, tick, vel / 127, STEP_TICKS // 2, 100)
+        print(string.format("ForceLink: step %d + note %d at %d vel %d: %s %s", st, note, tick, vel, tostring(ok), tostring(enc and #enc or enc)))
+        if ok and type(enc) == "string" then created[key] = enc end
+    elseif created[key] then
+        local ok, err = pcall(ev.DeleteEvent, created[key])
+        print(string.format("ForceLink: step %d - note %d at %d (ours): %s %s", st, note, tick, tostring(ok), tostring(err)))
+        created[key] = nil
+    else
+        legacyTap(math.floor(windowStart() / BAR_TICKS) + math.floor(st / 16), st % 16 + 1)   -- MPC's own step button
+        print(string.format("ForceLink: step %d - note %d at %d (MPC's button)", st, note, tick))
+    end
+    pollEvents()
+    sendView(true)
+end
+
+local function playSelected(level)
+    local vel = math.max(1, math.floor(127 * level / 16))
+    call(mpc.controlSurface.pads.Tap, padIndex1(selectedPad), vel)
+end
+
+local function stepPadPressed(i, vel)
+    if not useSnap() then return stepPadPressedLegacy(i) end
+    local row, col = math.floor(i / 8), i % 8
+    if row < 4 then
+        toggleStep(row * 8 + col, vel)
+    elseif col < 4 then
+        selectedPad = (7 - row) * 4 + col
+        playSelected(selectedLevel)
+        pollEvents()
+        sendView(true)
+    else
+        local l = (7 - row) * 4 + (col - 4) + 1
+        fixedLevel = (fixedLevel ~= l) and l or nil
+        selectedLevel = l
+        playSelected(l)
     end
     paintStep()
 end
@@ -587,6 +766,7 @@ local function move(dir)
     if mode == "step" then                                   -- STEP SEQ: LEFT / RIGHT page through bar pairs
         if dir == "left" and pairIndex > 0 then pairIndex = pairIndex - 1 end
         if dir == "right" and (pairIndex + 1) * 2 < numBars() then pairIndex = pairIndex + 1 end
+        if snap.on then sendView(true) end
         padCache = {}
         paintAll()
         return
@@ -622,7 +802,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 9 and note >= PAD0 and note < PAD0 + PADS then
         local i = note - PAD0
         if mode == "step" then
-            stepPadPressed(i)
+            stepPadPressed(i, velocity)
         elseif aperture then
             aperture.TriggerClip(i % 8, math.floor(i / 8))
         end
@@ -672,11 +852,18 @@ end
 
 function ForceLink.HandleMIDICC(channel, cc, value) end
 
-function ForceLink.HandleMIDISysex(bytes) end
 
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    if mode == "step" then
+        if snap.on then
+            sendView(false)
+            pollEvents()
+        elseif ticks % 16 == 0 then
+            sendView(true)           -- the library's hello at MPC's start may have come before we listened: ask again
+        end
+    end
     if aperture and not clipProps then
         -- window position, by whichever getter this firmware has (reported once in the log)
         for _, n in ipairs({"GetOriginX", "GetColumn", "GetX"}) do
@@ -785,6 +972,7 @@ local function report()
 end
 
 function ForceLink.OnLoad()
+    if dev.mappings.script.SetHandleSysex then dev.mappings.script.SetHandleSysex(true) end      -- stepsnap's answers
     -- the step sequencer object and its tap / brightness functions (names checked at run time, logged by report())
     stepSeq = mpc.controlSurface.stepSequencer
     if stepSeq then
