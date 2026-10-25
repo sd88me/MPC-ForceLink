@@ -27,7 +27,7 @@ int main(void) {
     CHECK(flsw_tell_peer(&s, "link") == 0, "peer accepted over TCP");
     usleep(500000);
     f = fopen(out, "r"); line[0] = 0; if (f) { if (!fgets(line, sizeof line, f)) line[0] = 0; fclose(f); }
-    CHECK(strstr(line, "--no-block") && strstr(line, "KillMode=process") && strstr(line, "/x/link.sh switch link"), "link.sh link started via the runner");
+    CHECK(strstr(line, "--unit=forcelink-switch-") && strstr(line, "--no-block") && strstr(line, "KillMode=process") && strstr(line, "/x/link.sh switch link"), "link.sh link started via the runner");
     flsw_t bad = s; strcpy(bad.token, "ffffffffffffffffffff");
     CHECK(flsw_tell_peer(&bad, "stock") != 0, "wrong token: peer refuses");
     puts(fails ? "FAILURES" : "ALL OK");

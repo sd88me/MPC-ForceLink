@@ -27,7 +27,7 @@ Same model as MPC Skipback and the button remap: libraries MPC preloads, watchin
 
 Shared code: `force-link/combo.c` (the gesture, `combo_test.c`) and `force-link/flswitch.c` (config, TCP 6771
 listener, `FLSW <token> <mode>`, `flswitch_test.c`). A switch tells the peer first, then runs
-`systemd-run --no-block -p KillMode=process sh link.sh switch <mode>` so it outlives the MPC restart it causes;
+`systemd-run --no-block --unit=forcelink-switch-<time>-<pid> -p KillMode=process sh link.sh switch <mode>` (a unique unit: one that started flsurf stays loaded while flsurf runs) so it outlives the MPC restart it causes;
 `link.sh switch` does nothing if the device is already in that setup. Logs: Live III `/tmp/forcespoof.log`, Force
 `/tmp/forcelink-switch.log` (stock) or `/tmp/forcelink.log` (link).
 

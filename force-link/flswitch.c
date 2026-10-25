@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 static void copy_val(char *dst, size_t cap, const char *v) {
@@ -47,7 +48,9 @@ int flsw_run_local(const flsw_t *s, const char *mode) {
     for (char **e = environ; *e && k < 63; e++) if (strncmp(*e, "LD_PRELOAD=", 11)) env[k++] = *e;
     env[k] = NULL;
     const char *runner = getenv("FLSW_RUNNER");     // tests only
-    char *argv[] = {(char *)(runner ? runner : "systemd-run"), "--no-block", "--collect", "--unit=forcelink-switch",
+    char unit[64];                                  // unique: a unit that started flsurf stays loaded while it runs
+    snprintf(unit, sizeof unit, "--unit=forcelink-switch-%ld-%d", (long)time(NULL), (int)getpid());
+    char *argv[] = {(char *)(runner ? runner : "systemd-run"), "--no-block", "--collect", unit,
                     "--property=KillMode=process",       // link.sh starts flsurf in the background: keep it
                     "/bin/sh", (char *)s->script, "switch", (char *)mode, NULL};
     pid_t p;
