@@ -495,3 +495,12 @@ full (AddInfiniteCCToQLink) made values jump and wrap, so the script now twists 
 - `CreateNoteEvent` returns strings of 2341-2373 characters. Sysex answers of that size from the library reach the script.
 - In MPC's own step-sequencer mode the 16 MPC pads are the step buttons and their lights the step lights: `pads.Tap` toggles
   steps of the selected pad's lane there, and `pads.LightRGBColor` shows step states.
+
+## 29. The Live III's pad-perform scale and root, read from MPC's memory (2026-10-25, device, MPC 3.10.0.49)
+Scripts cannot see the scale (`padPerform`/`keyboardControl` in the script API are only the two hardware buttons; a name
+walk of `mpc` found nothing). MPC's project serializer (0x17a7468) names the fields of its pad-perform settings object:
+Type +0x208, ScaleBasedChord +0x388, ChromaticChord +0x3e0, **ScaleType +0x260, BaseNote +0x2b8**, BankBehaviour +0x4e8.
+The note layout builder (0x16c1224, x0 = this) reads them via `this+0x118`, plus +0x330 (always 2 so far). The library
+hooks that function's entry to keep `this` and reads the three ints (fault-safe) on every events poll.
+Device readings: root 0 = A (C = 3, D = 5, F# = 9); scale types in MPC's list order with Chromatic first (Major 1,
+Natural Minor 2, Dorian 6, Hungarian Gypsy 15). Sysex `F0 7D 53 07 <type> <root> <third> F7` to the script.

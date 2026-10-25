@@ -54,25 +54,38 @@ subscription (note, window, 32 steps) with per-step velocities by sysex on the F
 Force's page (FINDINGS 23) and edits with `CreateNoteEvent` / `DeleteEvent` (own string, or MPC's own encoder's string
 fetched by the library for notes MPC already held). The page is sticky (chosen on entry: library + drum track + pad bank
 A -> real-data page, else the old MPC-step-button page).
-**Status (hand test 2026-10-25, last build): works.** Bottom-left quadrant selects pads, the right quadrant's 16 levels
-play at different velocities, entering steps works, overdubbed Live III hits show on the page.
-Fixed in the last round: MPC hands our own `pads.Press` back to the script as a ch9 pad note (note = the pressed pad's
-1-based number), which toggled steps; those echoes are now ignored for 2 ticks after our press, and note-offs are ignored.
-This kit's pads A01-A16 are notes 36-51 in order (device log: pads 1-3 = 36, 37, 38), not MPC's classic 37/36/42/82...;
-`DEFAULT_NOTES` follows that. Pads past 3 are assumed, not confirmed.
+**Status (hand tests 2026-10-25, last build): works.** Drum STEP SEQ: pad select, 16 levels, adding steps, overdubbed
+hits showing. Melodic STEP SEQ: 16 lanes, steps, audition, in key. Q-link value view, pan bars and melodic NOTE hand-tested OK.
+Fixes this round:
+- MPC hands our own `pads.Press` back to the script as a ch9 pad note; those echoes are ignored for 2 ticks after our press,
+  note-offs ignored (they toggled steps).
+- This kit's drum pads A01-A16 are notes 36-51 in order (`DEFAULT_NOTES`); pads 1-3 confirmed from the log, rest hand-tested OK.
+- Melodic tracks use the same real-data page (`padNote`): lane p = scale step p from the root (chromatic: keyBase + p).
+  Picking a lane plays it: script sends `audition <note> <vel>` to flsurf, which injects a ch9 note-on/off (250 ms) for
+  the track; lane notes 54-63 are taken off the script's pad mapping for 3 ticks (`readd`).
+- **Scale and root follow the Live III (FINDINGS 29).** `spoof/stepsnap.c` hooks MPC's pad-perform layout builder
+  (0x16c1224, first two words checked) to capture its `this`; `scale_check` reads settings = `*(this+0x118)`: scale type
+  +0x260, root +0x2b8, third field +0x330 (always 2; unknown) and sends sysex `07 <type> <root> <third>` when they
+  change (re-sent on a new subscribe). Needs the Live III to have built a pad layout once since MPC started (open NOTE on a
+  melodic track or change the scale). Root 0 = A; scale type 0 Chromatic, 1 Major, 2 Natural Minor, 3 Harmonic Minor,
+  4 Pent Major, 5 Pent Minor, 6 Dorian, 7 Phrygian, 8 Lydian, 9 Mixolydian, 10 Aeolian, 11 Locrian, 12 Blues, 13 Flamenco,
+  14 Gypsy, 15 Hungarian Gypsy, 16 Persian, 17 Major Bebop, 18 Whole Tone (confirmed 0-2, 6, 15 on the device; interval
+  sets of the exotic ones are guesses). Chromatic = 4ths layout, else in-key layout via flsurf `notemap scale <root> <mask>`.
+- SHIFT+NOTE runs `probeScale` (dumps what scripts can reach; found nothing useful, can go).
 **Still open:**
-1. The pad->note map is assumed (36 + pad), pad bank A only; other banks / custom or non-sequential kits show wrong lanes
-   or a dim page. Fix: learn it at runtime (play a pad while the library reports the new note in the list, log lines
-   `notes in the list:`) or read it from MPC's memory like the events.
-2. No playhead step. Skipped on purpose: the clip's own length/position is unreadable by scripts and a global-playhead
-   modulo would drift on clips with other lengths. Only worth building once the clip length can be read from memory.
-3. Unverified: the length of an auto-created clip; `DeleteEvent` with MPC's own string removing exactly the right note
+1. Drum pad->note map is assumed (36 + pad), pad bank A only; other banks / non-sequential kits show wrong lanes or a dim
+   page. The memory-reading route (as for the scale) could read the program's real map: find the pad-note table.
+2. No playhead step. Skipped on purpose: a clip's own length/position is unreadable by scripts and a global-playhead
+   modulo would drift. Worth building only if the clip length can be read from memory (same technique).
+3. Unverified: length of an auto-created clip; `DeleteEvent` with MPC's own string removing exactly the right note
    (log: `step N - note X at T (MPC's string): true/false`).
-4. Melodic STEP SEQ lanes, the in-key NOTE layout and the track's real scale/root are not done.
-5. Diagnostic logging is on (`events:`, `notes in the list:`, `ch9 note`, `pad ... pressed`): noisy, thin out once stable.
+4. The "third field" (+0x330) and the chord/bank-behaviour fields of the pad-perform object (see serializer 0x17a7468:
+   Type +0x208, ScaleBasedChord +0x388, ChromaticChord +0x3e0, BankBehaviour +0x4e8, StartOctave, Velocity) are unmapped.
+5. Exotic scale interval sets unverified (Flamenco, Gypsy, Persian, Major Bebop).
+6. Diagnostic logging is on (`events:`, `notes in the list:`, `ch9 note`, `pad ... pressed`): noisy, thin out once stable.
 
 ## Not tested by hand yet (built and deployed 2026-10-25)
-Q-link value view (large font) and pan bars; melodic NOTE; 16-level float velocity; the final sticky-page build.
+Nothing outstanding from this list (all hand-tested 2026-10-25).
 docs/DEVICE_TESTS.md has the plan (sections 3, 4, 5).
 
 ## Safety switches and rules
