@@ -395,8 +395,9 @@ local liveBank = 0
 local twisted = {}       -- MPC Q-link index -> timer tick the Force last turned it (so it is not taken as a Live turn)
 local changed = {}       -- Q-links whose value changed (not by the Force) since the last timer tick
 local lastTarget = {}    -- Q-link index -> its target name when last seen
--- MPC numbers its Q-links column-major: the Live III's knob j (0-3) in bank b is Q-link 4 * j + b (device, 2026-10-25)
-local function knobQ(k) return 4 * (k % 4) + (liveBank + (k >= 4 and 1 or 0)) % 4 end
+-- MPC's Q-link numbering: the Live III's knob j (0-3, left to right) in bank b is Q-link 4 * (3 - j) + b
+-- (device, 2026-10-25: bank 1 = 12, 8, 4, 0; bank 2 = 13, 9, 5, 1)
+local function knobQ(k) return 4 * (3 - k % 4) + (liveBank + (k >= 4 and 1 or 0)) % 4 end
 local function knobOf(i) for k = 0, 7 do if knobQ(k) == i then return k end end end
 local qlinkHeld = false -- SHIFT + KNOBS holds the MPC's Q-LINK button until KNOBS is released
 

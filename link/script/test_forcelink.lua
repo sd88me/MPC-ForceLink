@@ -89,7 +89,7 @@ check("row launch 2 dim (row has a clip), 1 off", has(sent, "CC 57 1") and has(s
 check("arrows: only DOWN lit", has(sent, "CC 113 1") and has(sent, "CC 112 0"))
 check("empty slot painted off", has(sent, padMsg(9, 0, 0, 0)))
 check("Force knobs CC 0x10..0x17 go to the script", has(calls, "cc 16") and has(calls, "cc 23"))
-check("OLED text sent for Q-link 1", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q0|0|0"))
+check("OLED 1 shows the Live III's knob 1 of bank 1 (Q-link 12)", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q12|12|96"))
 
 sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)            -- pad row 1 col 0
@@ -106,25 +106,25 @@ check("PLAY LED lit while playing", has(sent, "CC 82 3"))
 sent = {}
 clips[0][1].State:set(2)                               -- Playing
 check("playing clip bright red", has(sent, padMsg(8, 102, 0, 0)))
-qlinks[4].ValueString:set("50%")                       -- bank 1, knob 2 (column-major numbering)
-check("Q-link value change redraws only the bar of OLED 2", has(sent, string.char(0x7D, 0x46) .. "bar 2 Q4 32"))
+qlinks[4].ValueString:set("50%")                       -- bank 1, knob 3 (Q-link 4 * (3 - 2) + 0)
+check("Q-link value change redraws only the bar of OLED 3", has(sent, string.char(0x7D, 0x46) .. "bar 3 Q4 32"))
 -- Force knob turns: capped steps on the knob's Q-link; knobs 5-8 are the next bank (Q-links 4-7 from bank 0)
 ForceLink.HandleMIDICC(0, 0x10, 1); ForceLink.HandleMIDICC(0, 0x14, 0x7F); ForceLink.HandleMIDICC(0, 0x10, 40)
-check("knob 1 twists Q-link 0 by +1, knob 5 Q-link 1 (next bank) by -1, fast turn capped at 3", twists[1] == "0:1" and twists[2] == "1:-1" and twists[3] == "0:3")
--- a Live III knob in bank 4 changes (knob 1 there = Q-link 3): the Force follows, knob 1 = Q-link 3, knob 2 = 7,
--- knobs 5-8 = bank 1 (Q-links 0, 4, 8, 12)
+check("knob 1 twists Q-link 12 by +1, knob 5 Q-link 13 (next bank) by -1, fast turn capped at 3", twists[1] == "12:1" and twists[2] == "13:-1" and twists[3] == "12:3")
+-- a Live III knob in bank 4 changes (knob 4 there = Q-link 3): the Force follows: knobs 1-4 = Q-links 15, 11, 7, 3,
+-- knobs 5-8 = bank 1 (Q-links 12, 8, 4, 0)
 ForceLink.HandleTimer()                                 -- flush changes queued by the steps above
 sent = {}
 qlinks[3].ValueString:set("9.7")
 ForceLink.HandleTimer()                                 -- following is judged on the timer
-check("Live III knob in bank 4: Force knobs 1-4 = its knobs", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q3|9.7|24")
-      and has(sent, string.char(0x7D, 0x46) .. "qlink 2 Q7|7|56") and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q0|0|0"))
+check("Live III knob in bank 4: Force knobs 1-4 = its knobs", has(sent, string.char(0x7D, 0x46) .. "qlink 4 Q3|9.7|24")
+      and has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q15|15|120") and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q12|12|96"))
 twists = {}; ForceLink.HandleMIDICC(0, 0x10, 1)
-check("then knob 1 turns Q-link 3", twists[1] == "3:1")
+check("then knob 1 turns Q-link 15", twists[1] == "15:1")
 -- a burst (load / Q-link mode change) is not a knob turn: the bank stays
 qlinks[6].ValueString:set("x"); qlinks[10].ValueString:set("y"); ForceLink.HandleTimer()
 twists = {}; ForceLink.HandleMIDICC(0, 0x10, 1)
-check("a burst of Q-link changes does not move the bank", twists[1] == "3:1")
+check("a burst of Q-link changes does not move the bank", twists[1] == "15:1")
 
 -- NOTE mode: pads go to MPC pad quadrants; bottom-left Force pad (row 7 col 0) = MPC pad 0, bottom-left quadrant
 sent, calls = {}, {}
@@ -177,8 +177,8 @@ local qbtn = {}
 mpc.controlSurface.qlink = {Hold = function() qbtn[#qbtn + 1] = "hold" end, Release = function() qbtn[#qbtn + 1] = "release" end}
 sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)
-check("KNOBS steps the bank (4 -> 1): knob 1 = Q-link 0, knob 2 = Q-link 4, knob 5 = Q-link 1", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q0|0|0")
-      and has(sent, string.char(0x7D, 0x46) .. "qlink 2 Q4|50%|32") and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q1|1|8"))
+check("KNOBS steps the bank (4 -> 1): knobs 1, 2, 5 = Q-links 12, 8, 13", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q12|12|96")
+      and has(sent, string.char(0x7D, 0x46) .. "qlink 2 Q8|8|64") and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q13|13|104"))
 ForceLink.HandleMIDINoteOn(0, 0x31, 127); ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)
 ForceLink.HandleMIDINoteOff(0, 0x31, 0)
 check("SHIFT + KNOBS holds the MPC Q-LINK button, release on KNOBS up", qbtn[1] == "hold" and qbtn[2] == "release")

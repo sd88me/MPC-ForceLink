@@ -457,7 +457,8 @@ captured when the script calls `events.GetSize()`; the event field offsets come 
 (offline); events go to the script as sysex (`mappings.script.SetHandleSysex`).
 
 ## 26. MPC numbers its 16 Q-links column-major (2026-10-25, device, Live III MPC 3.10.0.49)
-The Live III's 4 knobs in Q-link bank b (0-3) are script Q-links `4 * j + b` (j = knob 0-3). Mapping Force knobs to
-4 consecutive indexes showed the Live III's Q-links 1, 5, 9, 13. `qlinks[i].GetPosition()` follows the value (0-127)
+The Live III's 4 knobs in Q-link bank b (0-3) are script Q-links `4 * (3 - j) + b` (j = knob 0-3, left to right;
+confirmed by the user: bank 1 = Cut Off, Resonance, Env Mod, Decay = 12, 8, 4, 0; bank 2 = 13, 9, 5, 1). A load or Q-link mode change updates all 16 at once, so the Force follows the Live III's bank only when exactly one
+Q-link changes on its own. `qlinks[i].GetPosition()` follows the value (0-127)
 when the Live III's knob turns. The Force knobs' relative CCs reach large steps when turned fast; applying them in
 full (AddInfiniteCCToQLink) made values jump and wrap, so the script now twists with each step capped at 3.
