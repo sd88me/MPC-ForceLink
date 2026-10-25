@@ -389,14 +389,19 @@ local function listenGrid()
     end
 end
 
-local knobBank = 0 -- the Force's 8 knobs drive MPC Q-links knobBank+1 .. knobBank+8 (KNOBS: 0 <-> 8)
+-- Q-links: MPC has 16 in 4 banks of 4; the Live III shows one bank on its 4 knobs. The Force's knobs 1-4 follow that
+-- bank (liveBank, learnt when a Live III knob turns) and knobs 5-8 the next one (wrapping). KNOBS steps the bank.
+local liveBank = 0
+local twisted = {}       -- MPC Q-link index -> timer tick the Force last turned it (so it is not taken as a Live turn)
+local function knobQ(k) return ((liveBank + (k >= 4 and 1 or 0)) % 4) * 4 + k % 4 end
+local function knobOf(i) for k = 0, 7 do if knobQ(k) == i then return k end end end
 local qlinkHeld = false -- SHIFT + KNOBS holds the MPC's Q-LINK button until KNOBS is released
 
 -- MPC Q-link index; drawn on the Force OLED of its knob when in the current bank, as the real Force draws it:
 -- name + outlined bar of the knob position. A value change redraws only the bar (pages 2-3), like the Force.
 local function showQLink(i, barOnly)
-    local k = i - knobBank
-    if k < 0 or k > 7 then return end
+    local k = knobOf(i)
+    if not k then return end
     local q = mpc.controlSurface.qlinks[i]
     if not q then return end
     local name = q.TargetName.value
@@ -415,8 +420,8 @@ local function bindKnobs()
     local n = mpc.controlSurface.qlinks.GetNumQLinks()
     for k = 0, 7 do
         if m.RemoveInfiniteCCToQLink then m.RemoveInfiniteCCToQLink(0, 0x10 + k) end
-        if knobBank + k < n then m.AddInfiniteCCToQLink(0, 0x10 + k, knobBank + k) end
-        showQLink(knobBank + k)
+        dev.mappings.script.AddCCToScript(0, 0x10 + k)       -- turns go through HandleMIDICC (capped steps)
+        if knobQ(k) < n then showQLink(knobQ(k)) end
     end
 end
 
@@ -431,8 +436,13 @@ local function listenQLinks()
             if (qlinkLogged[i] or -1) ~= now then
                 qlinkLogged[i] = now
                 local okp, pos = pcall(q.GetPosition)
-                print(string.format("ForceLink: qlink %d bank %d pos=%s (%s) value=%s target=%s", i, knobBank,
+                print(string.format("ForceLink: qlink %d bank %d pos=%s (%s) value=%s target=%s", i, liveBank,
                     tostring(pos), okp and type(pos) or "error", tostring(q.ValueString.value), tostring(q.TargetName.value)))
+            end
+            -- a change the Force did not cause is a Live III knob (or automation): follow the Live III's bank
+            if (twisted[i] or -100) < ticks - 4 and math.floor(i / 4) ~= liveBank then
+                liveBank = math.floor(i / 4)
+                bindKnobs()
             end
             showQLink(i, true)
         end, deviceName)
@@ -586,7 +596,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note == BTN.step then setMode("step")
         elseif note == BTN.knobs then
             if not shift then
-                knobBank = knobBank == 0 and 8 or 0           -- KNOBS: Force knobs on Q-links 1-8 / 9-16
+                liveBank = (liveBank + 1) % 4                 -- KNOBS: step the Q-link bank
                 bindKnobs()
             else
                 -- SHIFT + KNOBS: try to open the MPC's Q-link mode menu (its Q-LINK button held); result logged
@@ -616,7 +626,19 @@ function ForceLink.HandleMIDINoteOff(channel, note, velocity)
     end
 end
 
-function ForceLink.HandleMIDICC(channel, cc, value) end
+-- Force knobs (CC 0x10-0x17, relative: 1-63 up, 65-127 down). The controller sends large steps when turned fast,
+-- which made values jump; each message moves the Q-link by at most 3.
+function ForceLink.HandleMIDICC(channel, cc, value)
+    if channel ~= 0 or cc < 0x10 or cc > 0x17 or value == 0 or value == 64 then return end
+    local d = value < 64 and value or value - 128
+    if d > 3 then d = 3 elseif d < -3 then d = -3 end
+    local i = knobQ(cc - 0x10)
+    local q = mpc.controlSurface.qlinks[i]
+    if not q then return end
+    twisted[i] = ticks
+    local turn = q.Twist or q.Rotate
+    if turn then pcall(turn, d, false) end
+end
 
 function ForceLink.HandleMIDISysex(bytes) end
 
@@ -633,7 +655,7 @@ function ForceLink.HandleTimer()
         end
     end
     if ticks % 8 == 0 then padCache = {}; ledCache = {} end -- resend everything every 2 s (the link may have reconnected)
-    if ticks % 16 == 0 then for k = 0, 7 do showQLink(knobBank + k) end end -- and the OLEDs every 4 s
+    if ticks % 16 == 0 then for k = 0, 7 do showQLink(knobQ(k)) end end -- and the OLEDs every 4 s
     paintAll()
 end
 

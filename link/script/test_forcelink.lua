@@ -24,7 +24,9 @@ end
 
 local qlinks = {GetNumQLinks = function() return 8 end}
 qlinks.GetNumQLinks = function() return 16 end
-for i = 0, 15 do qlinks[i] = {TargetName = prop("Q" .. i), ValueString = prop(tostring(i)), GetPosition = function() return i * 8 end} end
+local twists = {}
+for i = 0, 15 do qlinks[i] = {TargetName = prop("Q" .. i), ValueString = prop(tostring(i)), GetPosition = function() return i * 8 end,
+                              Twist = function(d, fine) twists[#twists + 1] = i .. ":" .. d end} end
 
 local padmap = {}
 local mpcPads = {}
@@ -43,7 +45,7 @@ ForceLink = {
         SendMIDICC = function(ch, cc, v, port) sent[#sent + 1] = string.format("CC %d %d", cc, v) end,
     },
     mappings = {
-        script = {AddNoteToScript = function(ch, n) padmap[n] = "script" end, AddCCToScript = function() end,
+        script = {AddNoteToScript = function(ch, n) padmap[n] = "script" end, AddCCToScript = function(ch, cc) calls[#calls + 1] = "cc " .. cc end,
                   RemoveNoteToScript = function(ch, n) padmap[n] = nil end},
         pads = {AddNoteToMpcPadQuadrant = function(ch, n, pad, q) padmap[n] = "quad " .. pad .. "/" .. q end,
                 RemoveNoteToMpcPadQuadrant = function(ch, n) padmap[n] = nil end,
@@ -86,7 +88,7 @@ check("stopped clip painted dim red (row 1 col 0)", has(sent, padMsg(8, 19, 0, 0
 check("row launch 2 dim (row has a clip), 1 off", has(sent, "CC 57 1") and has(sent, "CC 56 0"))
 check("arrows: only DOWN lit", has(sent, "CC 113 1") and has(sent, "CC 112 0"))
 check("empty slot painted off", has(sent, padMsg(9, 0, 0, 0)))
-check("Q-links bound to CC 0x10..0x17", has(calls, "qlink 16->0") and has(calls, "qlink 23->7"))
+check("Force knobs CC 0x10..0x17 go to the script", has(calls, "cc 16") and has(calls, "cc 23"))
 check("OLED text sent for Q-link 1", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q0|0|0"))
 
 sent, calls = {}, {}
@@ -106,6 +108,16 @@ clips[0][1].State:set(2)                               -- Playing
 check("playing clip bright red", has(sent, padMsg(8, 102, 0, 0)))
 qlinks[2].ValueString:set("50%")
 check("Q-link value change redraws only the bar of OLED 3", has(sent, string.char(0x7D, 0x46) .. "bar 3 Q2 16"))
+-- Force knob turns: capped steps on the knob's Q-link; knobs 5-8 are the next bank (Q-links 4-7 from bank 0)
+ForceLink.HandleMIDICC(0, 0x10, 1); ForceLink.HandleMIDICC(0, 0x14, 0x7F); ForceLink.HandleMIDICC(0, 0x10, 40)
+check("knob 1 twists Q-link 0 by +1, knob 5 Q-link 4 by -1, fast turn capped at 3", twists[1] == "0:1" and twists[2] == "4:-1" and twists[3] == "0:3")
+-- a Live III knob in bank 3 (Q-link 12) changes: the Force follows, knob 1 = Q-link 12, knobs 5-8 = Q-links 0-3
+sent = {}
+qlinks[12].ValueString:set("9.7")
+check("Live III knob in bank 4: Force knobs 1-4 show Q-links 13-16", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q12|9.7|96")
+      and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q0|0|0"))
+twists = {}; ForceLink.HandleMIDICC(0, 0x10, 1)
+check("then knob 1 turns Q-link 12", twists[1] == "12:1")
 
 -- NOTE mode: pads go to MPC pad quadrants; bottom-left Force pad (row 7 col 0) = MPC pad 0, bottom-left quadrant
 sent, calls = {}, {}
@@ -153,12 +165,13 @@ check("STEP: velocity level 1 plays the selected pad softly", padHits[#padHits] 
 ForceLink.HandleMIDINoteOn(0, 0x03, 127)
 check("MATRIX again: clip pad repainted", has(sent, padMsg(8, 102, 0, 0)))
 
--- KNOBS: plain press/release mirrors the MPC Q-LINK button; SHIFT + KNOBS moves the Force knobs to Q-links 9-16
+-- KNOBS steps the Q-link bank; SHIFT + KNOBS holds the MPC Q-LINK button
 local qbtn = {}
 mpc.controlSurface.qlink = {Hold = function() qbtn[#qbtn + 1] = "hold" end, Release = function() qbtn[#qbtn + 1] = "release" end}
 sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)
-check("KNOBS: knob 1 -> Q-link 9, OLED 1 shows it", has(calls, "qlink 16->8") and has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q8|8|64"))
+check("KNOBS steps the bank (4 -> 1): knob 1 = Q-link 1, knob 5 = Q-link 5", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q0|0|0")
+      and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q4|4|32"))
 ForceLink.HandleMIDINoteOn(0, 0x31, 127); ForceLink.HandleMIDINoteOn(0, 0x01, 127); ForceLink.HandleMIDINoteOff(0, 0x01, 0)
 ForceLink.HandleMIDINoteOff(0, 0x31, 0)
 check("SHIFT + KNOBS holds the MPC Q-LINK button, release on KNOBS up", qbtn[1] == "hold" and qbtn[2] == "release")
