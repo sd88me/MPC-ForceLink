@@ -26,6 +26,7 @@ local BTN = {play = 0x52, stop = 0x51, rec = 0x49, shift = 0x31,
 local QUAD = {2, 3, 0, 1}   -- checked 2026-10-24: the MPC's quadrant 0/1 are the bottom row
 local mode = "matrix"
 local ticks = 0 -- timer ticks (250 ms)
+local qlinkLogged = {}          -- diagnostics: last timer tick each Q-link change was logged
 local stepSeq, stepTap, stepBright -- the step sequencer object and its functions, found in OnLoad
 local LAUNCH0, TRACKSEL0, TRACKARM0 = 56, 96, 41
 
@@ -424,7 +425,17 @@ local function listenQLinks()
     for i = 0, n - 1 do
         local q = mpc.controlSurface.qlinks[i]
         q.TargetName:listen(function() showQLink(i) end, deviceName)
-        q.ValueString:listen(function() showQLink(i, true) end, deviceName)
+        q.ValueString:listen(function()
+            -- diagnostics (2026-10-25): what the bar can be drawn from; at most one line per Q-link per timer tick
+            local now = ticks
+            if (qlinkLogged[i] or -1) ~= now then
+                qlinkLogged[i] = now
+                local okp, pos = pcall(q.GetPosition)
+                print(string.format("ForceLink: qlink %d bank %d pos=%s (%s) value=%s target=%s", i, knobBank,
+                    tostring(pos), okp and type(pos) or "error", tostring(q.ValueString.value), tostring(q.TargetName.value)))
+            end
+            showQLink(i, true)
+        end, deviceName)
     end
     bindKnobs()
 end

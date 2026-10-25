@@ -84,3 +84,12 @@ Use the captures to copy layout and colours into ForceLink.lua; sequence data st
 Deploy a script change: `cd b && ./build.sh`, then copy ForceLink.ini/.lua to the Live III
 `/data/mpc-addins/forcespoof/script/` and `/nvme/MPC Documents/Devices/ForceLink/` and restart acvs (or `forcelink install`
 then `forcelink link`).
+
+## Device test results 2026-10-25 (docs/DEVICE_TESTS.md)
+- 7 (captures of the real Force): done, FINDINGS 21-24. 1 (switch): passes after the unique-unit fix. 6 (#GetState):
+  no, FINDINGS 25. 2 (MATRIX basics): OK. 4 (drum NOTE): OK; the Live III follows to the bank of the pad hit.
+- 3 (Q-link OLEDs): KNOBS only toggles 1-8 / 9-16 (expected); bars jump to max and back instead of following the
+  value; turning a Q-link on the Live III does not update the Force. Diagnostic log line added
+  (`ForceLink: qlink <i> bank <b> pos=... value=...`); read it after the next Live III restart.
+- 5 (STEP SEQ, current version): unreliable (other pads' steps appear/disappear, pad select off, bottom-right lacks
+  pad colours, bar B lit white only). Rebuild on the shim's event reading + the real Force layout (FINDINGS 23).
