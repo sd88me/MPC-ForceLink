@@ -11,7 +11,11 @@
  *   here -> script  03 <version>                            the patch is active
  *                   02 <seq:2> <count:3> <nsteps> <vel>...  per step the velocity (1-127, 0 = none) of the note's first
  *                                                           event in that step; count = events in the list
- *                   04 <n> (<note> <count:2>)...            distinct notes in the list (up to 24) */
+ *                   04 <n> (<note> <count:2>)... <end:5>    distinct notes in the list (up to 24); end = the last
+ *                                                           note's end tick
+ *   script -> here  06 <note> <tick:5> <len:2>              ask for MPC's own encoded string of the note's first event
+ *                                                           in [tick, tick + len): answered on the next GetSize call
+ *   here -> script  05 <note> <tick:5> <len:3> <chars>      that string (what events.DeleteEvent takes; about 2.4 KB) */
 #ifndef STEPSNAP_H
 #define STEPSNAP_H
 #include <stddef.h>
@@ -20,10 +24,12 @@
 typedef struct {
 	void (*send)(const uint8_t *msg, size_t n);   /* a complete sysex for the script */
 	void (*log)(const char *line);
+	void *encoder;                                /* tests only: stands in for MPC's event encoder (NULL = MPC's own) */
 } ss_host_t;
 
 typedef struct {
 	int64_t time, len;
+	uintptr_t node;                               /* address of the tree node (the event is at node + 0x20) */
 	uint8_t note, vel;                            /* vel 0-127 */
 } ss_ev_t;
 

@@ -180,3 +180,32 @@ Report what differs; the logs (`ForceLink: step ...`, `stepsnap: ...`) say where
 
 **Next after this:** read the track's real note numbers for pads beyond A01-A16 / other programs; melodic STEP SEQ lanes;
 the in-key NOTE layout (needs the track's scale/root from memory too: same technique, another function).
+
+## STEP SEQ, first hand test and the fixes (2026-10-25, later; DEPLOYED, Live III MPC restarted)
+**What the first test showed (user): pad quadrant added steps to "pad 16" and lit like a step sequencer, the Live III's pad
+did not change, steps went "somewhere", lights flickered.** Causes, from the logs:
+1. Entering STEP SEQ asked MPC for its own step-sequencer mode. There MPC's 16 pads ARE its step buttons and its pad lights
+   ARE its step lights, so `pads.Tap` toggled steps and `pads.LightRGBColor` returned step lights. **Fix:** with the library
+   active (`snap.on`) the script never asks for that mode; MPC stays in its pad mode (as in NOTE), so a tap selects and
+   plays the pad and its colour is the program's. The old page (which needs MPC's step mode) is only the fallback.
+2. The page followed MPC's GLOBAL playhead (bar ~32 = tick 123,840) but a clip's events are clip-relative from tick 0 (the
+   shim log lists real clips starting at time 0), so steps were created at ticks far outside the clip. **Fix:** no
+   playhead following; the window is paged by LEFT / RIGHT from bar pair 0, up to one pair past the last note (the library
+   reports the last note's end in the `04` message). The clip's own length and position are not readable by scripts, so the
+   green playhead step is not shown (the real Force shows one: open).
+3. Flicker: the view changed each bar while following the playhead (rows were dropped on every view change). Gone with 2.
+4. Removing a note MPC already held used MPC's step button, which needs MPC's step mode (not active now). **New:** the library
+   asks MPC's OWN event encoder (0x2f9dda0, words checked first; called on MPC's script thread from the GetSize hook) for
+   the string `DeleteEvent` takes, and sends it (about 2.4 KB of sysex, shim buffers now 8 KB) to the script, which then
+   calls `DeleteEvent`. Notes the script created itself are deleted with the string `CreateNoteEvent` returned. Both log
+   (`ForceLink: step ... (MPC's string)`, shim log `stepsnap: encoded note ...`). Disable by creating
+   `/data/mpc-addins/forcespoof/stepsnap.off` (everything) - there is no separate switch for the encoder call.
+Confirmed on the device: the patch re-installs after the restart, the library's hello reaches the script
+(`ForceLink: stepsnap active (library version 1)`), so the sysex path library -> Force Link port -> script works.
+
+**Try again (same steps as docs/DEVICE_TESTS.md section 5), noting:**
+- bottom-left 4x4 should now select and play the pad (Live III shows it selected) and keep the program colours;
+- steps you add appear in MPC at the right place (check in MPC's own editor), within the first bar pairs;
+- tapping a set step should remove it (watch for `asked MPC's string` then `(MPC's string): true` in the log);
+- if a step lands one step off, or all steps are shifted: look at the shim log's first notes of the list and set
+  `STEP_ORIGIN` in the script.

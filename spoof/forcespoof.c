@@ -919,21 +919,26 @@ static void *b_port_thread(void *arg)
 		return NULL;
 	}
 	sq_name(seq, "Force Link");
+	{
+		int (*sq_obs)(snd_seq_t *, size_t) = next_sym("snd_seq_set_output_buffer_size");
+		if (sq_obs)
+			sq_obs(seq, 65536);                   /* room for the large sysex answers */
+	}
 	int port = sq_port(seq, "Force Link", 1 | 2 | (1 << 5) | (1 << 6), (1 << 1) | (1 << 20));
 	sq_nb(seq, 1);
-	me_new(2048, &enc);
-	me_new(2048, &dec);
+	me_new(8192, &enc);                           /* stepsnap's encoded-event answers are about 2.4 KB */
+	me_new(8192, &dec);
 	if (me_nostatus)
 		me_nostatus(dec, 1);                      /* full status bytes towards flsurf */
 	note("B: port Force Link open", b_host);
 	if (access(BRIDGE_DIR "stepsnap.off", F_OK) && pipe2(ss_pipe, O_NONBLOCK | O_CLOEXEC) == 0) {
-		static const ss_host_t sh = {ss_send, ss_log};
+		static const ss_host_t sh = {ss_send, ss_log, NULL};
 		uintptr_t base = 0;
 		dl_iterate_phdr(base_cb, &base);
 		ss_install(base, &sh, BRIDGE_DIR "stepsnap.guard");
 	}
 	int tcp = -1;
-	unsigned char buf[2048];
+	unsigned char buf[8192];
 	for (;;) {
 		if (tcp < 0) {
 			int s = socket(AF_INET, SOCK_STREAM, 0);

@@ -486,3 +486,12 @@ full (AddInfiniteCCToQLink) made values jump and wrap, so the script now twists 
 - `spoof/stepsnap_test.cpp` (in `build.sh`): a fake GetSize made of the real words, a real `std::multiset` with
   the same layout, patched and called under QEMU: counts, fields, per-step velocities, registers kept, null list, garbage
   pointers, the guard. Not yet run against MPC itself.
+
+## 28. First device run of the stepsnap patch (2026-10-25, Live III, MPC 3.10.0.49)
+- The patch installs at 0xaaaaada339bc (load bias 0xaaaaaaa00000, MPC runs without ASLR under `setarch -R`), the veneer
+  at 0xaaaaaaa33000; MPC runs on, the crash guard clears itself after 30 s; reads of real clips work (lists of 100+ notes).
+- Event times of a clip start at 0 (clip-relative): the first notes read were time 0, 240, 480 ... (note 38, 44, 51 ...).
+  `PlayheadPosition` is global (sequence) time (bar ~32 = 123,840 while the clip is at bar 1): do not mix them.
+- `CreateNoteEvent` returns strings of 2341-2373 characters. Sysex answers of that size from the library reach the script.
+- In MPC's own step-sequencer mode the 16 MPC pads are the step buttons and their lights the step lights: `pads.Tap` toggles
+  steps of the selected pad's lane there, and `pads.LightRGBColor` shows step states.

@@ -7,6 +7,7 @@ extern "C" {
 #include <cstdio>
 #include <cstring>
 #include <set>
+#include <string>
 #include <vector>
 #include <unistd.h>
 
@@ -62,6 +63,13 @@ __asm__(".text\n.globl call_checked\n.balign 16\ncall_checked:\n"
 	"ldp x19,x20,[sp,#16]\nldp x21,x22,[sp,#32]\nldp x23,x24,[sp,#48]\nldp x25,x26,[sp,#64]\nldp x27,x28,[sp,#80]\n"
 	"ldp x29,x30,[sp],#96\nret\n");
 
+// MPC's encoder stand-in: a std::string by value (x8 indirect result), 2400 chars like the real ones
+static std::string fake_encoder(const void *ev)
+{
+	long t; memcpy(&t, ev, 8);
+	return "N" + std::to_string(((const unsigned char *)ev)[0x30]) + "T" + std::to_string(t) + std::string(2400, 'A');
+}
+
 static std::vector<std::vector<unsigned char>> sent;
 static void host_send(const unsigned char *m, size_t n) { sent.emplace_back(m, m + n); }
 static void host_log(const char *l) { printf("   log: %s\n", l); }
@@ -114,7 +122,7 @@ int main()
 	CHECK(r == 9 && ok, "unpatched: returns the count, callee-saved registers kept");
 
 	// wrong code at the site: left alone
-	static ss_host_t host = {host_send, host_log};
+	static ss_host_t host = {host_send, host_log, reinterpret_cast<void *>(fake_encoder)};
 	CHECK(ss_install((uintptr_t)fake_get_size - 0x2f939a0 + 64, &host, nullptr) == -1, "wrong code at the patch site: left alone");
 
 	char guard[64];
@@ -172,6 +180,32 @@ int main()
 	call_checked((void *)fake_get_size, &wrapper, &ok);
 	rep = latest(0x02);
 	CHECK(rep.size() >= 4 + 7 + 16 && rep[3 + 7 + 2] == 50, "a new event is sent at once");
+
+	// an encoded-string request: answered on the next GetSize call, the 2400-char string through
+	unsigned char rq[9] = {0x06, 36, 0, 0, 0, 0x07, 0x50, 0, 120};      // note 36, tick 960 (= 7 * 128 + 64), a 120-tick window
+	rq[5] = (960 >> 7) & 0x7f; rq[6] = 960 & 0x7f; rq[7] = 0; rq[8] = 0;
+	rq[7] = 0; rq[8] = 120;                                              // window length 120 as two 7-bit bytes: 0, 120
+	ss_command(rq, sizeof rq);
+	sent.clear();
+	call_checked((void *)fake_get_size, &wrapper, &ok);
+	auto enc = latest(0x05);
+	std::string want = "N36T960" + std::string(2400, 'A');
+	bool encOk = enc.size() == 3 + 1 + 1 + 5 + 3 + want.size() + 1 && enc[4] == 36;
+	if (encOk) {
+		size_t len = ((size_t)enc[10] << 14) | ((size_t)enc[11] << 7) | enc[12];
+		encOk = len == want.size() && memcmp(&enc[13], want.data(), want.size()) == 0;
+	}
+	CHECK(encOk, "a request for note 36 at tick 960 gets MPC's encoded string (2.4 KB) back");
+	sent.clear();
+	call_checked((void *)fake_get_size, &wrapper, &ok);
+	CHECK(latest(0x05).empty(), "the request is answered once");
+	unsigned char rq2[9] = {0x06, 99, 0, 0, 0, 0, 0, 0, 120};
+	ss_command(rq2, sizeof rq2);
+	call_checked((void *)fake_get_size, &wrapper, &ok);
+	CHECK(latest(0x05).empty() && ok, "no such note: no answer, no crash");
+	long endv = 0;
+	for (int i = 0; hist.size() > 10 && i < 5; i++) endv = (endv << 7) | hist[hist.size() - 6 + i];
+	CHECK(hist.size() > 10 && endv == 4440, "the note histogram ends with the last note end tick (4440)");
 
 	// no list found: the original error path (returns 0x10 here) and no crash
 	g_list = nullptr;

@@ -32,13 +32,18 @@ static const uint32_t ORIG[13] = {0xd503233f, 0xa9be7bfd, 0x910003fd, 0xf9404c00
 static ss_host_t host;
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static struct { int note; int64_t start; int step, nsteps; } view = {-1, 0, 240, 32};
-static uint8_t last_reply[MAXVIEW + 16], last_hist[96];
+static uint8_t last_reply[MAXVIEW + 16], last_hist[96 + 8];
 static size_t last_reply_n, last_hist_n;
 static struct timespec last_sent;
 static unsigned seq;
 static int direct_reads, read_fails;
 static uintptr_t logged_list[4];
 static ss_ev_t *evbuf;
+static struct { int active, note; int64_t tick; int len; } req;         /* a pending "06" request */
+typedef struct { char *p; size_t len; union { size_t cap; char buf[16]; } u; } cxxstr;   /* a std::string, by value */
+typedef cxxstr (*enc_fn)(const void *event);                           /* MPC's event -> string (0x2f9dda0) */
+static enc_fn encoder;
+static const uint32_t ENC_WORDS[8] = {0xd503233f, 0xd10243ff, 0xd0027221, 0xf9467821, 0xa9057bfd, 0x910143fd, 0xa90653f3, 0xaa0803f3};
 
 static void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static void say(const char *fmt, ...)
@@ -108,6 +113,7 @@ long ss_read_list(const void *list, ss_ev_t *out, size_t cap, uint64_t *total)
 			int mv = (int)((v + (v > 0 ? 1 : v < 0 ? -1 : 0) / 254.0f) * 127.0f);   /* MPC's MidiVelocity */
 			out[n].time = t;
 			out[n].len = ln;
+			out[n].node = cur;
 			out[n].note = node[E_NOTE] & 0x7f;
 			out[n].vel = (uint8_t)(mv < 0 ? 0 : mv > 127 ? 127 : mv);
 			n++;
@@ -161,13 +167,54 @@ static uint64_t get7(const uint8_t *p, int n)
 
 static void emit(const uint8_t *body, size_t n)
 {
-	uint8_t m[160];
-	if (!host.send || n > sizeof m - 4)
+	if (!host.send || n > 8192)
+		return;
+	uint8_t *m = malloc(n + 4);
+	if (!m)
 		return;
 	m[0] = 0xF0; m[1] = 0x7D; m[2] = 0x53;
 	memcpy(m + 3, body, n);
 	m[3 + n] = 0xF7;
 	host.send(m, n + 4);
+	free(m);
+}
+
+/* an encoded-string request, answered here because MPC's encoder must run on MPC's own (script) thread */
+static void answer_request(long n)
+{
+	pthread_mutex_lock(&mtx);
+	int active = req.active, note = req.note, len = req.len;
+	int64_t tick = req.tick;
+	req.active = 0;
+	pthread_mutex_unlock(&mtx);
+	if (!active || !encoder)
+		return;
+	for (long k = 0; k < n; k++) {
+		if (evbuf[k].note != note || evbuf[k].time < tick || evbuf[k].time >= tick + len)
+			continue;
+		cxxstr r = encoder((const void *)(evbuf[k].node + 0x20));
+		const char *p = r.len <= 15 ? r.u.buf : r.p;       /* short strings live inside the object */
+		size_t sl = r.len;
+		if (!p || sl == 0 || sl > 6000) {
+			say("stepsnap: encoder gave %zu bytes for note %d at %lld; not sent", sl, note, (long long)tick);
+			return;
+		}
+		uint8_t *b = malloc(sl + 12);
+		if (!b)
+			return;
+		size_t o = 0;
+		b[o++] = 0x05;
+		b[o++] = (uint8_t)note;
+		put7(b + o, (uint64_t)tick, 5); o += 5;
+		put7(b + o, sl, 3); o += 3;
+		for (size_t i = 0; i < sl; i++)
+			b[o++] = (uint8_t)p[i] & 0x7f;
+		emit(b, o);
+		free(b);
+		say("stepsnap: encoded note %d at %lld: %zu chars", note, (long long)evbuf[k].time, sl);
+		return;
+	}
+	say("stepsnap: no note %d in [%lld, +%d) to encode", note, (long long)tick, len);
 }
 
 void ss_snap(void *list)
@@ -194,12 +241,13 @@ void ss_snap(void *list)
 			break;
 		}
 	}
+	answer_request(n);
 	pthread_mutex_lock(&mtx);
 	int note = view.note, step = view.step, ns = view.nsteps;
 	int64_t start = view.start;
 	pthread_mutex_unlock(&mtx);
 
-	uint8_t body[MAXVIEW + 16], hist[96];
+	uint8_t body[MAXVIEW + 16], hist[96 + 8];
 	size_t bn = 0, hn = 0;
 	int counts[128] = {0};
 	uint8_t vel[MAXVIEW] = {0};
@@ -224,12 +272,17 @@ void ss_snap(void *list)
 	hist[hn++] = 0x04;
 	hist[hn++] = 0;
 	int distinct = 0;
+	int64_t maxend = 0;
+	for (long k = 0; k < n; k++)
+		if (evbuf[k].time + evbuf[k].len > maxend)
+			maxend = evbuf[k].time + evbuf[k].len;
 	for (int i = 0; i < 128 && distinct < 24; i++)
 		if (counts[i]) {
 			hist[hn++] = (uint8_t)i;
 			put7(hist + hn, (uint64_t)counts[i], 2); hn += 2;
 			distinct++;
 		}
+	put7(hist + hn, (uint64_t)maxend, 5); hn += 5;
 	hist[1] = (uint8_t)distinct;
 
 	struct timespec now;
@@ -259,6 +312,15 @@ void ss_snap(void *list)
 
 void ss_command(const uint8_t *b, size_t n)
 {
+	if (n >= 9 && b[0] == 0x06) {
+		pthread_mutex_lock(&mtx);
+		req.note = b[1] & 0x7f;
+		req.tick = (int64_t)get7(b + 2, 5);
+		req.len = (int)get7(b + 7, 2);
+		req.active = req.len > 0;
+		pthread_mutex_unlock(&mtx);
+		return;
+	}
 	if (n >= 10 && b[0] == 0x01) {
 		pthread_mutex_lock(&mtx);
 		view.note = b[1] & 0x7f;
@@ -351,6 +413,15 @@ int ss_install(uintptr_t base, const ss_host_t *h, const char *guard)
 			fprintf(f, "%d\n", tries + 1);
 			fclose(f);
 		}
+	}
+	if (h->encoder) {
+		encoder = (enc_fn)h->encoder;
+	} else {
+		uint32_t w[8];
+		if (!rd((void *)(base + 0x2f9dda0), w, sizeof w) && !memcmp(w, ENC_WORDS, sizeof w))
+			encoder = (enc_fn)(base + 0x2f9dda0);
+		else
+			say("stepsnap: MPC's event encoder not where expected; deleting MPC's own notes is off");
 	}
 	evbuf = malloc(sizeof(ss_ev_t) * MAXEV);
 	if (!evbuf)
