@@ -110,3 +110,15 @@ Next, in order (from the real-Force captures, FINDINGS 21-24):
 4. STEP SEQ rebuild: the real Force page (FINDINGS 23) on real event data from the shim (FINDINGS 25 route).
 Known: the Live III follows to the bank of a pad hit from the Force (MPC behaviour); the Force's MPC once stopped
 answering its controller after SHIFT + NOTE (restart fixed it).
+
+## Built offline 2026-10-25 (not yet on the devices)
+1. Q-link OLEDs: value view in the large font while a Force knob is touched (and 0.5 s after), centre bars for pan
+   values; large glyphs harvested at build time from `local/captures/qlinks.bin` (gen_big_font.py, fingerprints only),
+   all 200 captured value strings pixel-identical (bigfont_check.py); letters not in the capture use the scaled small
+   font. flcmd `qname` / `qval`.
+2. Melodic NOTE: the real Force's chromatic layout (rows a 4th apart, bottom-left C 48), roots (C) in the track colour,
+   other pads dim white, pressed note bright green and same pitch class dim green (flsurf `notemap keys <base>` copies
+   each press on channel 16 for the script), UP / DOWN = octave. In-key layout and the track's own root/scale not done
+   (not readable from scripts).
+Q-link diagnostics removed from the script. Deploy: `forcelink install`, then `forcelink link` (restarts MPC on the
+Live III and flsurf on the Force).

@@ -26,7 +26,6 @@ local BTN = {play = 0x52, stop = 0x51, rec = 0x49, shift = 0x31,
 local QUAD = {2, 3, 0, 1}   -- checked 2026-10-24: the MPC's quadrant 0/1 are the bottom row
 local mode = "matrix"
 local ticks = 0 -- timer ticks (250 ms)
-local qlinkLogged = {}          -- diagnostics: last timer tick each Q-link change was logged
 local stepSeq, stepTap, stepBright -- the step sequencer object and its functions, found in OnLoad
 local LAUNCH0, TRACKSEL0, TRACKARM0 = 56, 96, 41
 
@@ -133,8 +132,24 @@ local function isDrumTrack()
     return ok and type(t) == "string" and t:lower():find("drum") ~= nil
 end
 
+-- Melodic tracks, as the real Force (FINDINGS 21): chromatic rows a 4th apart, keyBase at the bottom-left, roots
+-- (C; the track's scale/root are not readable by scripts) in the track colour, other pads dim white. flsurf plays
+-- the notes and copies each pad press on channel 16 (pad number) for the press colours.
+local keyBase = 48
+local heldPads = {}   -- pad index 0-63 -> true while pressed (melodic NOTE)
+local function keyPitch(row, col) return keyBase + col + 5 * (7 - row) end
+
 local function mapNoteLayout(drum)
     local m = dev.mappings.pads
+    text(drum and "notemap on" or ("notemap keys " .. keyBase))
+    for n = PAD0, PAD0 + PADS - 1 do                   -- the channel-16 copies: to the script on melodic tracks
+        if drum then
+            if dev.mappings.script.RemoveNoteToScript then dev.mappings.script.RemoveNoteToScript(15, n) end
+        else
+            dev.mappings.script.AddNoteToScript(15, n)
+        end
+    end
+    heldPads = {}
     for fromBottom = 0, 7 do
         for col = 0, 7 do
             local note = 36 + 8 * fromBottom + col
@@ -160,22 +175,22 @@ local function paintNote()
         end
         return
     end
+    -- melodic: colours as captured from the real Force (7-bit values doubled for setPad)
+    local held, heldClass = {}, {}
+    for p in pairs(heldPads) do
+        local n = keyPitch(math.floor(p / 8), p % 8)
+        held[n] = true; heldClass[n % 12] = true
+    end
+    local tr, tg, tb = 0xCC, 0x0A, 0xCC                       -- root colour: the track's, else magenta as captured
+    local okc, c = pcall(function() return mpc.tracks.currentTrack.Colour.value end)
+    if okc and type(c) == "number" and c ~= 0 then tr, tg, tb = argb(c) end
     for row = 0, 7 do
         for col = 0, 7 do
-            local fromBottom = 7 - row
-            local pad = (fromBottom % 4) * 4 + col % 4
-            local bank = math.floor(fromBottom / 4) * 2 + math.floor(col / 4)
-            local r, g, b = 0, 0, 0
-            -- what the MPC's pad LED shows now (hex string), else the program's pad colour
-            local ok, hex = false, nil
-            if pads and pads.LightRGBColor then ok, hex = pcall(pads.LightRGBColor, pad + 1) end -- 1-based, like the step buttons
-            if ok and hex and tostring(hex) ~= "" then
-                r, g, b = hexRGB(hex)
-            elseif pads and pads[pad] then
-                r, g, b = argb(pads[pad].Colour.value)
-            end
-            local k = bank == 0 and 1 or 0.35
-            setPad(row * 8 + col, r * k, g * k, b * k)
+            local n = keyPitch(row, col)
+            if held[n] then setPad(row * 8 + col, 0, 254, 0)                  -- this note: bright green
+            elseif heldClass[n % 12] then setPad(row * 8 + col, 0, 84, 34)    -- same note, other octave: dim green
+            elseif n % 12 == 0 then setPad(row * 8 + col, tr, tg, tb)         -- root (C)
+            else setPad(row * 8 + col, 50, 50, 50) end                        -- other notes: dim white
         end
     end
 end
@@ -345,12 +360,14 @@ end
 local function mapPads(toNotes)
     local m = dev.mappings
     if toNotes then
-        text("notemap on")
         for n = 36, PAD0 + PADS - 1 do if m.script.RemoveNoteToScript then m.script.RemoveNoteToScript(9, n) end end
         mapNoteLayout(isDrumTrack())
     else
         text("notemap off")
         if noteDrum then mapNoteLayout(false) end
+        if noteDrum == false and m.script.RemoveNoteToScript then
+            for n = PAD0, PAD0 + PADS - 1 do m.script.RemoveNoteToScript(15, n) end
+        end
         noteDrum = nil
         for n = PAD0, PAD0 + PADS - 1 do m.script.AddNoteToScript(9, n) end
     end
@@ -448,14 +465,6 @@ local function listenQLinks()
         local q = mpc.controlSurface.qlinks[i]
         q.TargetName:listen(function() showQLink(i) end, deviceName)
         q.ValueString:listen(function()
-            -- diagnostics (2026-10-25): what the bar can be drawn from; at most one line per Q-link per timer tick
-            local now = ticks
-            if (qlinkLogged[i] or -1) ~= now then
-                qlinkLogged[i] = now
-                local okp, pos = pcall(q.GetPosition)
-                print(string.format("ForceLink: qlink %d page %d pos=%s (%s) value=%s target=%s", i, forcePage,
-                    tostring(pos), okp and type(pos) or "error", tostring(q.ValueString.value), tostring(q.TargetName.value)))
-            end
             showQLink(i)
         end, deviceName)
     end
@@ -582,6 +591,17 @@ local function move(dir)
         paintAll()
         return
     end
+    if mode == "note" and noteDrum == false and (dir == "up" or dir == "down") then   -- melodic NOTE: octave
+        local nb = keyBase + (dir == "up" and 12 or -12)
+        if nb >= 0 and nb + 7 + 35 <= 127 then
+            keyBase = nb
+            heldPads = {}
+            text("notemap keys " .. keyBase)
+            paintNote()
+            if mpc.ui and mpc.ui.ShowTUIFeedback then mpc.ui.ShowTUIFeedback("Force NOTE: octave " .. (math.floor(keyBase / 12) - 2)) end
+        end
+        return
+    end
     if not aperture then return end
     local n = shift and 8 or 1
     local fn = ({up = "MoveUp", down = "MoveDown", left = "MoveLeft", right = "MoveRight"})[dir]
@@ -594,6 +614,11 @@ end
 
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, velocity > 0) end
+    if channel == 15 and note >= PAD0 and note < PAD0 + PADS then        -- melodic NOTE: flsurf's copy of a press
+        heldPads[note - PAD0] = velocity > 0 or nil
+        if mode == "note" then paintNote() end
+        return
+    end
     if channel == 9 and note >= PAD0 and note < PAD0 + PADS then
         local i = note - PAD0
         if mode == "step" then
@@ -632,6 +657,11 @@ end
 
 function ForceLink.HandleMIDINoteOff(channel, note, velocity)
     if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, false) end
+    if channel == 15 and note >= PAD0 and note < PAD0 + PADS then
+        heldPads[note - PAD0] = nil
+        if mode == "note" then paintNote() end
+        return
+    end
     if channel == 0 and note == BTN.shift then shift = false end
     if channel == 0 and note == BTN.knobs and qlinkHeld then
         local q = mpc.controlSurface.qlink

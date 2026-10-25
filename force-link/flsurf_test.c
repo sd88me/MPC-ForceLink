@@ -32,6 +32,11 @@ int main(void) {
     const uint8_t nl[] = {0x99, 54, 0x7F, 0x99, 110, 0x7F, 0x89, 117, 0x00, 0x90, 0x52, 0x7F};
     const uint8_t nlw[] = {0x99, 92, 0x7F, 0x99, 36, 0x7F, 0x89, 43, 0x00, 0x90, 0x52, 0x7F};
     expect("note layout on: pads renumbered, buttons not", nl, sizeof nl, nlw, sizeof nlw);
+    // keys layout (base 48): bottom-left 48, next row up +5, top-right 48 + 7 + 35; copies on channel 16
+    note_layout = 2; key_base = 48;
+    const uint8_t kl[] = {0x99, 110, 0x64, 0x99, 102, 0x7F, 0x89, 61, 0x00};
+    const uint8_t klw[] = {0x9F, 110, 0x64, 0x99, 48, 0x64, 0x9F, 102, 0x7F, 0x99, 53, 0x7F, 0x8F, 61, 0x00, 0x89, 90, 0x00};
+    expect("keys layout: rows a 4th apart, copies on ch 16", kl, sizeof kl, klw, sizeof klw);
     note_layout = 0;
     puts(fails ? "FAILURES" : "ALL OK");
     return fails != 0;

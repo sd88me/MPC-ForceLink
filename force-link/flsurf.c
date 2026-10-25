@@ -78,7 +78,9 @@ static void send_cb(void *ctx, int cable, const uint8_t *b, size_t n) {
 
 // "notemap on|off" from the script: pads become plain notes for MPC tracks, 36 + 8 * row-from-bottom + col (36 = the
 // bottom-left pad, the usual drum layout start)
-static int note_layout;
+// "notemap keys <base>": melodic layout as the real Force (FINDINGS 21): base + col + 5 * row-from-bottom (rows a 4th
+// apart); each pad press is also copied on channel 16 with the pad's own number, for the script's press colours.
+static int note_layout, key_base = 36;   // 0 off, 1 grid (drum), 2 keys
 
 // controller -> client. Sysex from the controller is only replies (heartbeat, identity, config echoes): dropped.
 typedef struct { int in_sysex; uint8_t st, m[2]; int mn; } upfilt_t;
@@ -106,8 +108,16 @@ static size_t up_filter(upfilt_t *f, const uint8_t *b, size_t n, uint8_t *out) {
             else if (v >= 65) f->m[1] = 127;
         }
         if (note_layout && (f->st == 0x99 || f->st == 0x89 || f->st == 0xA9) && d0 >= 54 && d0 <= 117) {
-            int i = d0 - 54;
-            d0 = (uint8_t)(36 + (7 - i / 8) * 8 + i % 8);
+            int i = d0 - 54, fb = 7 - i / 8, col = i % 8;
+            if (note_layout == 2) {
+                int n = key_base + col + 5 * fb;
+                if (f->st != 0xA9) {                 // the script's copy: channel 16, the pad's own number
+                    out[o++] = (uint8_t)((f->st & 0xF0) | 0x0F); out[o++] = d0; out[o++] = f->m[1];
+                }
+                d0 = (uint8_t)(n < 0 ? 0 : n > 127 ? 127 : n);
+            } else {
+                d0 = (uint8_t)(36 + fb * 8 + col);
+            }
         }
         out[o++] = f->st; out[o++] = d0;
         if (need == 2) out[o++] = f->m[1];
@@ -123,7 +133,11 @@ static void down_msg(io_t *io, const uint8_t *m, size_t n) {
         char line[600];
         size_t l = n - 4 < sizeof line - 1 ? n - 4 : sizeof line - 1;
         memcpy(line, m + 3, l); line[l] = 0;
-        if (!strncmp(line, "notemap ", 8)) { note_layout = !strcmp(line + 8, "on"); return; }
+        if (!strncmp(line, "notemap ", 8)) {
+            if (!strncmp(line + 8, "keys", 4)) { note_layout = 2; if (line[12] == ' ') key_base = atoi(line + 13); }
+            else note_layout = !strcmp(line + 8, "on");
+            return;
+        }
         fl_cmd(line, send_cb, io);
         return;
     }

@@ -45,8 +45,8 @@ ForceLink = {
         SendMIDICC = function(ch, cc, v, port) sent[#sent + 1] = string.format("CC %d %d", cc, v) end,
     },
     mappings = {
-        script = {AddNoteToScript = function(ch, n) padmap[n] = "script" end, AddCCToScript = function(ch, cc) calls[#calls + 1] = "cc " .. cc end,
-                  RemoveNoteToScript = function(ch, n) padmap[n] = nil end},
+        script = {AddNoteToScript = function(ch, n) if ch == 15 then padmap["c16:" .. n] = true else padmap[n] = "script" end end, AddCCToScript = function(ch, cc) calls[#calls + 1] = "cc " .. cc end,
+                  RemoveNoteToScript = function(ch, n) if ch == 15 then padmap["c16:" .. n] = nil else padmap[n] = nil end end},
         pads = {AddNoteToMpcPadQuadrant = function(ch, n, pad, q) padmap[n] = "quad " .. pad .. "/" .. q end,
                 RemoveNoteToMpcPadQuadrant = function(ch, n) padmap[n] = nil end,
                 RemoveNoteToMpcPad = function() end},
@@ -124,13 +124,24 @@ calls = {}
 qlinks[3].ValueString:set("9.7"); ForceLink.HandleTimer()
 check("Live III changes leave the Force's Q-link mapping alone", not has(calls, "qlink "))
 
--- NOTE mode: pads go to MPC pad quadrants; bottom-left Force pad (row 7 col 0) = MPC pad 0, bottom-left quadrant
+-- NOTE mode on a melodic track (the real Force's layout, FINDINGS 21): rows a 4th apart from C (48) bottom-left
 sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(0, 0x04, 127)
-check("NOTE: flsurf note layout switched on", has(sent, string.char(0x7D, 0x46) .. "notemap on"))
-check("NOTE: pad notes no longer go to the script", padmap[54] == nil and padmap[54 + 56] == nil and padmap[40] == nil)
-check("NOTE: bank A pad 1 green bottom-left, bank B dimmer", has(sent, padMsg(56, 0, 127, 0)) and has(sent, padMsg(60, 0, 44, 0)))
+check("NOTE: flsurf keys layout from 48", has(sent, string.char(0x7D, 0x46) .. "notemap keys 48"))
 check("NOTE: NOTE LED lit, MATRIX dim", has(sent, "CC 4 3") and has(sent, "CC 3 1"))
+check("NOTE: pad notes go to the track, their ch 16 copies to the script", padmap[54] == nil and padmap[54 + 56] == nil
+      and padmap["c16:110"] and padmap["c16:54"])
+check("NOTE: root C bottom-left in the track colour, C# dim white", has(sent, padMsg(56, 102, 5, 102)) and has(sent, padMsg(57, 25, 25, 25)))
+-- C one row up is col 7 (48 + 5 + 7 = 60): also a root
+check("NOTE: next C at row 6 col 7", has(sent, padMsg(55, 102, 5, 102)))
+sent = {}
+ForceLink.HandleMIDINoteOn(15, 110, 100)                -- press bottom-left (C 48)
+check("press: the pad bright green, other Cs dim green", has(sent, padMsg(56, 0, 127, 0)) and has(sent, padMsg(55, 0, 42, 17)))
+ForceLink.HandleMIDINoteOff(15, 110, 0)
+check("release: back to the root colour", has(sent, padMsg(56, 102, 5, 102)))
+sent = {}; ForceLink.HandleMIDINoteOn(0, 0x70, 127)    -- UP: octave up
+check("UP in melodic NOTE: octave up (keys 60)", has(sent, string.char(0x7D, 0x46) .. "notemap keys 60"))
+ForceLink.HandleMIDINoteOn(0, 0x71, 127)               -- DOWN: back
 
 -- NOTE on a drum track: the real Force's 2x2 bank layout (A bottom-left, B bottom-right, C top-left, D top-right)
 local vpad = {}
@@ -142,8 +153,8 @@ sent = {}
 ForceLink.HandleTimer()
 check("NOTE drum: corners map to banks A/B/C/D", vpad[36] == 0 and vpad[39] == 3 and vpad[40] == 16 and vpad[68] == 32
       and vpad[72] == 48 and vpad[99] == 63 and vpad[45] == 5)
-check("NOTE drum: bank B pad 1 shows virtual pad 17 (red), A1 stays green", has(sent, padMsg(60, 127, 0, 0))
-      and not has(sent, string.char(0x47, 0x7F, 0x40, 0x65, 0x00, 0x04, 56)))
+check("NOTE drum: bank A pad 1 = virtual pad 1 (green), bank B pad 1 = virtual pad 17 (red)", has(sent, padMsg(60, 127, 0, 0))
+      and has(sent, padMsg(56, 0, 127, 0)) and has(sent, string.char(0x7D, 0x46) .. "notemap on"))
 mpc.tracks.currentTrack.Type:set("Keygroup")
 ForceLink.HandleTimer()
 check("NOTE keygroup: drum pad mapping removed", next(vpad) == nil)
