@@ -113,12 +113,18 @@ ForceLink.HandleMIDICC(0, 0x10, 1); ForceLink.HandleMIDICC(0, 0x14, 0x7F); Force
 check("knob 1 twists Q-link 0 by +1, knob 5 Q-link 1 (next bank) by -1, fast turn capped at 3", twists[1] == "0:1" and twists[2] == "1:-1" and twists[3] == "0:3")
 -- a Live III knob in bank 4 changes (knob 1 there = Q-link 3): the Force follows, knob 1 = Q-link 3, knob 2 = 7,
 -- knobs 5-8 = bank 1 (Q-links 0, 4, 8, 12)
+ForceLink.HandleTimer()                                 -- flush changes queued by the steps above
 sent = {}
 qlinks[3].ValueString:set("9.7")
+ForceLink.HandleTimer()                                 -- following is judged on the timer
 check("Live III knob in bank 4: Force knobs 1-4 = its knobs", has(sent, string.char(0x7D, 0x46) .. "qlink 1 Q3|9.7|24")
       and has(sent, string.char(0x7D, 0x46) .. "qlink 2 Q7|7|56") and has(sent, string.char(0x7D, 0x46) .. "qlink 5 Q0|0|0"))
 twists = {}; ForceLink.HandleMIDICC(0, 0x10, 1)
 check("then knob 1 turns Q-link 3", twists[1] == "3:1")
+-- a burst (load / Q-link mode change) is not a knob turn: the bank stays
+qlinks[6].ValueString:set("x"); qlinks[10].ValueString:set("y"); ForceLink.HandleTimer()
+twists = {}; ForceLink.HandleMIDICC(0, 0x10, 1)
+check("a burst of Q-link changes does not move the bank", twists[1] == "3:1")
 
 -- NOTE mode: pads go to MPC pad quadrants; bottom-left Force pad (row 7 col 0) = MPC pad 0, bottom-left quadrant
 sent, calls = {}, {}

@@ -393,6 +393,8 @@ end
 -- bank (liveBank, learnt when a Live III knob turns) and knobs 5-8 the next one (wrapping). KNOBS steps the bank.
 local liveBank = 0
 local twisted = {}       -- MPC Q-link index -> timer tick the Force last turned it (so it is not taken as a Live turn)
+local changed = {}       -- Q-links whose value changed (not by the Force) since the last timer tick
+local lastTarget = {}    -- Q-link index -> its target name when last seen
 -- MPC numbers its Q-links column-major: the Live III's knob j (0-3) in bank b is Q-link 4 * j + b (device, 2026-10-25)
 local function knobQ(k) return 4 * (k % 4) + (liveBank + (k >= 4 and 1 or 0)) % 4 end
 local function knobOf(i) for k = 0, 7 do if knobQ(k) == i then return k end end end
@@ -430,6 +432,7 @@ local function listenQLinks()
     local n = math.min(16, mpc.controlSurface.qlinks.GetNumQLinks())
     for i = 0, n - 1 do
         local q = mpc.controlSurface.qlinks[i]
+        lastTarget[i] = q.TargetName.value
         q.TargetName:listen(function() showQLink(i) end, deviceName)
         q.ValueString:listen(function()
             -- diagnostics (2026-10-25): what the bar can be drawn from; at most one line per Q-link per timer tick
@@ -440,11 +443,11 @@ local function listenQLinks()
                 print(string.format("ForceLink: qlink %d bank %d pos=%s (%s) value=%s target=%s", i, liveBank,
                     tostring(pos), okp and type(pos) or "error", tostring(q.ValueString.value), tostring(q.TargetName.value)))
             end
-            -- a change the Force did not cause is a Live III knob (or automation): follow the Live III's bank
-            if (twisted[i] or -100) < ticks - 4 and i % 4 ~= liveBank then
-                liveBank = i % 4
-                bindKnobs()
-            end
+            -- a value change the Force did not cause, on an unchanged target, may be a Live III knob: collected and
+            -- judged on the timer (a load or Q-link mode change updates all of them at once; that is ignored)
+            local t = q.TargetName.value
+            if (twisted[i] or -100) < ticks - 4 and t ~= "" and t == lastTarget[i] then changed[#changed + 1] = i end
+            lastTarget[i] = t
             showQLink(i, true)
         end, deviceName)
     end
@@ -646,6 +649,9 @@ function ForceLink.HandleMIDISysex(bytes) end
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    -- exactly one Q-link changed on its own since the last tick: a Live III knob turn; follow its bank
+    if #changed == 1 and changed[1] % 4 ~= liveBank then liveBank = changed[1] % 4; bindKnobs() end
+    changed = {}
     if aperture and not clipProps then
         -- window position, by whichever getter this firmware has (reported once in the log)
         for _, n in ipairs({"GetOriginX", "GetColumn", "GetX"}) do
