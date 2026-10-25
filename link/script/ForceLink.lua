@@ -347,7 +347,11 @@ local function bankA()
     return not ok or b == nil or b == 0
 end
 
-local function padNote(p) return bankA() and DEFAULT_NOTES[p + 1] or nil end
+-- drum track: the pad's note; melodic track: lane p is the chromatic note keyBase + p (no scale: not readable by scripts)
+local function padNote(p)
+    if not isDrumTrack() then return math.max(0, math.min(127, keyBase + p)) end
+    return bankA() and DEFAULT_NOTES[p + 1] or nil
+end
 
 -- the answer for the list MPC counts now, else the latest one (right after an edit the count has moved on, the answer not yet)
 local function snapRow() return snap.byCount[snap.want] or snap.last end
@@ -360,7 +364,7 @@ local function snapPairs() return math.floor((snap.maxEnd or 0) / (2 * BAR_TICKS
 -- drum track in pad bank A; else the old one. In the real-data page a pad bank / track it cannot do shows a dim page.
 local snapMode = false
 local function useSnap() return snapMode end
-local function snapSupported() return isDrumTrack() and padNote(selectedPad) ~= nil end
+local function snapSupported() return padNote(selectedPad) ~= nil end
 
 local function put7(v, n) local t = {}; for i = n, 1, -1 do t[i] = v % 128; v = math.floor(v / 128) end; return string.char(table.unpack(t)) end
 local function get7(b, i, n) local v = 0; for k = 0, n - 1 do v = v * 128 + (b:byte(i + k) or 0) end; return v end
@@ -514,6 +518,7 @@ local echoHit, echoTick     -- the pad number our press comes back as (see Handl
 local lastHitBase = 1    -- LastHitPad counts from 1, like Tap (checked against our own presses, see followLiveHit)
 local function playSelected(level)
     local vel = math.max(1 / 127, math.min(1.0, level / 16))        -- a float 0-1 (ints above 1 all sounded as 1.0)
+    if not isDrumTrack() then return end                     -- melodic lanes are not auditioned (no pad of the Live III is theirs)
     local pads = mpc.controlSurface.pads
     local idx = padIndex1(selectedPad)
     ourHit, ourPressTick = idx, ticks
@@ -529,6 +534,7 @@ end
 -- the Live III's last hit pad (MPC pads, 1-based like Tap): the page follows it, so notes played or overdubbed there show
 local lastHit
 local function followLiveHit()
+    if not isDrumTrack() then return end
     local lh = call(mpc.controlSurface.pads.LastHitPad)
     if type(lh) ~= "number" then return end
     if lastHit == nil then lastHit = lh; return end
