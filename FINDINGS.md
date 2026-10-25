@@ -445,3 +445,13 @@ Frames rendered to `local/captures/qlinks_frames.png`.
 - During this session the Force's MPC once stopped answering the controller (input arrived, nothing sent back, OLEDs
   blank) after SHIFT + NOTE and the NOTE settings; `systemctl restart acvs` fixed it. Not caused by the link code
   (stock MPC, only addins); watch for it.
+
+## 25. `#GetState` is not reachable from a controller script (2026-10-25, device, Live III MPC 3.10.0.49)
+SHIFT + STEP SEQ probe (`local/captures/getstate_probe.txt`): `obj["#GetState"]` is nil on the sequence and clip
+event lists, `currentSequence`, `clipMatrix`, `project`, and `mpc.GetState` is nil too. The script's objects are plain
+tables of functions with no metatable, so the registrar seen offline (section 19) does not reach Lua scripts here.
+Also seen: in Grid View the selected clip's event list has the notes (`GetSize()` 450) and the current sequence 0;
+`currentTrack.GetType()` = "Drum"; `stepSequencer.GetCurrentMode()` = "Drum Seq"; loop 15360-184320 ticks.
+Next route for real 32 steps: the shim reads the event list in memory (rb-tree at list+0x60, count +0x88, section 19),
+captured when the script calls `events.GetSize()`; the event field offsets come from the serialiser at 0x2f972c0
+(offline); events go to the script as sysex (`mappings.script.SetHandleSysex`).

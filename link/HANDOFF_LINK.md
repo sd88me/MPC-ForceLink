@@ -37,7 +37,10 @@ Both devices in link. Live III: MPC 3.10.0.49, ForceLink script loaded, Force Li
   `tools/force_capture_render.py /tmp/note.bin out` (pad colours, LEDs, OLEDs).
 - Tests: `script/test_forcelink.lua`, `flsurf_test` 4/4, `oled_test`, `cmd_test`.
 
-## Found offline 2026-10-24 (MPC 3.10.0.49, not yet tried on device): events may be readable from Lua
+## Found offline 2026-10-24: events may be readable from Lua -- NO (device, 2026-10-25, FINDINGS 25)
+`#GetState` is nil from scripts. Use the shim route below ("Fallback"), with event offsets from the serialiser.
+
+### (original notes)
 - Every scriptable object gets `#GetState` ("Provides the state of this object") registered next to `Help` in the
   Lua registrar (0x2efdb04, unconditional). `mpc.GetState()` gives the whole tree; `DiffStates(a, b)` diffs two.
   An internal JS test harness uses `JSON.stringify(mpc.GetState())`. Returns a `Scripting::State` (via a future).
