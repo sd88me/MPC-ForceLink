@@ -1,5 +1,93 @@
 # Handoff: Force link (link setup; formerly "version B", renamed 2026-10-25)
 
+# START HERE: state at the end of the 2026-10-25 session (read this block first; everything below is history)
+
+## What this is
+An Akai Force used as an extra control surface for an MPC Live III. Live III: MPC OS 3.9.1 (kept for its USB-script SSH
+route) running the MPC 3.10.0.49 app on top of it, started at every boot by a USB stick; the Force's own MPC is stopped
+and `flsurf` serves its controller (pads, buttons, knobs, OLEDs) over TCP to a signed MPC controller script
+(`ForceLink.lua`) on the Live III. Two setups: **link** (this) and **stock** (both devices on their own MPC; "version A/B"
+are retired names, A is archived in `archive/force-identity/`).
+
+## Repos and private files (nothing private is in git)
+- `~/forcelink` (git, local only, not pushed): this project. Private, git-ignored: `local/MPC` (your MPC 3.10.0.49 binary,
+  needed to build: OLED font + script checksum), `local/hosts.conf` (device IPs, symlinked at `link/hosts.conf`),
+  `local/captures/` (usbmon captures of the real Force: `note-keys`, `note-drum`, `stepseq`, `qlinks`, ...; needed for the
+  large Q-link font: `force-link/gen_big_font.py`), `local/pylib`. Generated headers `flfont_mpc.h`, `flfont_big.h`
+  and the signed `link/script/ForceLink.ini` are never committed. **Never publish the checksum salt or a built stick.**
+- `~/push2-force`: private workbench (firmware images, MPC binaries, early notes). `~/mpc310-on-391` + mpc-vst-plugins
+  `tools/mpc310_on_391/` (PR #545, merged 2026-10-25): the public "MPC 3.10 on a 3.9.1 Live III" USB stick builder.
+- `~/mpc-vst-plugins` branch `usb-bootstrap`: local only; its commit f2fbe7f and docs/NOTES.md still hold the autorun
+  SALT VALUE: strip it before any push (user said keep that branch local).
+
+## Build, deploy, switch (all from `~/forcelink`, dev box = WSL)
+- `./build.sh`: everything, with tests (Lua mock 52+ checks, flsurf/flcmd/combo/flswitch/oled tests, the QEMU aarch64
+  `spoof/stepsnap_test.cpp`, preload tests of both libraries). **Never deploy a build whose preload test failed.**
+- `link/forcelink install` (files to both devices, nothing restarts), then `link/forcelink link` (restarts `flsurf` on the
+  Force and MPC on the Live III: closes the open project) or just on the Live III: `sh /data/mpc-addins/forcespoof/link.sh link`
+  over SSH. `link/forcelink stock` / `status` / `addins` (SHIFT + MENU switch addins) / `cap start|stop <name>` (usbmon
+  capture of the real Force, Force in stock). SSH is root key login; the Live III's comes from the boot stick (below).
+- Script change = signed `.ini` + `.lua` in `/nvme/MPC Documents/Devices/ForceLink/` on the Live III (done by `link.sh link`).
+- Logs: Live III `journalctl -u acvs | grep ForceLink` (script `print`s), `/tmp/forcespoof.log` (shim + `stepsnap:` lines);
+  Force `/tmp/forcelink.log` (flsurf; `-r` adds raw bytes), `/tmp/forcelink-switch.log` (stock addin).
+
+## Device state right now (checked 2026-10-25, matches the builds)
+Live III: MPC 3.10.0.49 in link, home setup `link`, shim with the stepsnap patch active (guard counter 0, no
+`stepsnap.off`). Force: `flsurf` running (its MPC stopped). Boot stick (LEXAR, in the Live III) brings the Live III up in
+3.10 + link by itself at every boot (hands-free, ~30 s; `disable-310` file on the stick = plain 3.9.1; old sticks in
+`autorun.prev*`). SHIFT + MENU (hold, release, MENU) toggles the Force stock <-> link from either device.
+
+## What works (device-verified unless noted)
+SHIFT + MENU switch; MATRIX (8x8 clip window, colours, launch, arrows); drum NOTE (4 banks of 4x4 as the real Force:
+unconfirmed that the real one shows 4 banks, it showed one with a 16-pad kit); Q-links: 2 Force pages via KNOBS (Live III
+banks 1+2 / 3+4), knob j of bank b = MPC Q-link `4*(3-j)+b`, MPC's own relative mapping with flsurf capping steps at +-1,
+name view + large value view while touched (pixel-identical to the real Force, built, not hand-tested), pan bars;
+melodic NOTE (chromatic rows a 4th apart, roots C, green press feedback, UP/DOWN octave: built, not hand-tested);
+STEP SEQ on real note data (see below): clip creation, lane following the Live III's last hit pad, adding/removing steps
+all worked in the user's tests; pad quadrant select works.
+
+## STEP SEQ (the active work)
+Design and assumptions: the "STEP SEQ rebuilt" + "first hand test" + "second hand test" sections below, FINDINGS 27-28.
+In short: `spoof/stepsnap.c` patches MPC's `events.GetSize()` (3.10.0.49 only, word-for-word check, crash guard, fault-safe
+reads) so the script's 250 ms `GetSize()` polls make the library read the clip's note list; it answers the script's
+subscription (note, window, 32 steps) with per-step velocities by sysex on the Force Link port; the script draws the real
+Force's page (FINDINGS 23) and edits with `CreateNoteEvent` / `DeleteEvent` (own string, or MPC's own encoder's string
+fetched by the library for notes MPC already held). The page is sticky (chosen on entry: library + drum track + pad bank
+A -> real-data page, else the old MPC-step-button page).
+**Open in STEP SEQ (the user said "still not perfect"):**
+1. Last hand test (before the final fix): 16 levels all sounded the same (velocity now sent as float 0-1: re-test;
+   else MPC's FullLevel); bottom-left quadrant did not select pads and "random notes" appeared (cause found: the page
+   flipped to the old MPC-step-button page; now sticky; if random notes persist, check the new per-press log line
+   `recording= overdub= playing=`: pad hits from the Force are recorded when MPC records/overdubs).
+2. Only drum pad bank A with MPC's default note numbers (A01 = 37, A02 = 36, A03 = 42, A04 = 82, ...); other banks / custom
+   note maps show a dim page. Needs the program's pad->note map (not in the script API: read it from MPC's memory like
+   the events, or learn it).
+3. No green playhead step (a clip's own length/position is not readable by scripts; the global playhead is not the clip's).
+4. Clip length of an auto-created clip, and whether `DeleteEvent` with MPC's own string removes exactly that note, are
+   unverified (the log lines `step N - note X at T (MPC's string): true/false` say).
+5. Melodic STEP SEQ lanes, the in-key NOTE layout and the track's real scale/root are not done.
+
+## Not tested by hand yet (built and deployed 2026-10-25)
+Q-link value view (large font) and pan bars; melodic NOTE; 16-level float velocity; the final sticky-page build.
+docs/DEVICE_TESTS.md has the plan (sections 3, 4, 5).
+
+## Safety switches and rules
+- Patch off: `touch /data/mpc-addins/forcespoof/stepsnap.off` on the Live III, restart MPC. It also disables itself after
+  two starts that did not survive 30 s (`stepsnap.guard`; delete it to re-arm).
+- Back to plain: `link/forcelink stock`, or reboot the Live III with the stick out. A reboot always comes up in stock/3.9.1
+  unless the stick is in.
+- Ask before restarting MPC when the user may have a project open (each Live III deploy restarts it); never run a build
+  whose QEMU preload test failed; stage files as `.new` then `mv`; the safety classifier stops long low-level C blocks
+  (write them in small edits); user approval does not override it.
+
+## Ideas queue (after STEP SEQ is solid)
+Read the program's pad note map; clip-relative playhead; the real Force's in-key NOTE layout (needs scale/root: same
+memory-reading technique); capture the real Force with a 17+ pad kit (does NOTE show 4 banks?); a public release of
+forcelink (README, signed-script build instructions, no Akai files); tell Eurikon / poloq about the stick tool.
+
+---
+(older sections, newest last)
+
 Read first: `README.md` (this folder: switching, files, sessions), `../FINDINGS.md` sections 13-18 (all device facts).
 
 ## Switching
