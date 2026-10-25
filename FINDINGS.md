@@ -455,3 +455,9 @@ Also seen: in Grid View the selected clip's event list has the notes (`GetSize()
 Next route for real 32 steps: the shim reads the event list in memory (rb-tree at list+0x60, count +0x88, section 19),
 captured when the script calls `events.GetSize()`; the event field offsets come from the serialiser at 0x2f972c0
 (offline); events go to the script as sysex (`mappings.script.SetHandleSysex`).
+
+## 26. MPC numbers its 16 Q-links column-major (2026-10-25, device, Live III MPC 3.10.0.49)
+The Live III's 4 knobs in Q-link bank b (0-3) are script Q-links `4 * j + b` (j = knob 0-3). Mapping Force knobs to
+4 consecutive indexes showed the Live III's Q-links 1, 5, 9, 13. `qlinks[i].GetPosition()` follows the value (0-127)
+when the Live III's knob turns. The Force knobs' relative CCs reach large steps when turned fast; applying them in
+full (AddInfiniteCCToQLink) made values jump and wrap, so the script now twists with each step capped at 3.

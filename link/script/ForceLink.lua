@@ -393,7 +393,8 @@ end
 -- bank (liveBank, learnt when a Live III knob turns) and knobs 5-8 the next one (wrapping). KNOBS steps the bank.
 local liveBank = 0
 local twisted = {}       -- MPC Q-link index -> timer tick the Force last turned it (so it is not taken as a Live turn)
-local function knobQ(k) return ((liveBank + (k >= 4 and 1 or 0)) % 4) * 4 + k % 4 end
+-- MPC numbers its Q-links column-major: the Live III's knob j (0-3) in bank b is Q-link 4 * j + b (device, 2026-10-25)
+local function knobQ(k) return 4 * (k % 4) + (liveBank + (k >= 4 and 1 or 0)) % 4 end
 local function knobOf(i) for k = 0, 7 do if knobQ(k) == i then return k end end end
 local qlinkHeld = false -- SHIFT + KNOBS holds the MPC's Q-LINK button until KNOBS is released
 
@@ -440,8 +441,8 @@ local function listenQLinks()
                     tostring(pos), okp and type(pos) or "error", tostring(q.ValueString.value), tostring(q.TargetName.value)))
             end
             -- a change the Force did not cause is a Live III knob (or automation): follow the Live III's bank
-            if (twisted[i] or -100) < ticks - 4 and math.floor(i / 4) ~= liveBank then
-                liveBank = math.floor(i / 4)
+            if (twisted[i] or -100) < ticks - 4 and i % 4 ~= liveBank then
+                liveBank = i % 4
                 bindKnobs()
             end
             showQLink(i, true)
