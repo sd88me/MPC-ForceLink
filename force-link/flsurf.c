@@ -82,6 +82,11 @@ static void send_cb(void *ctx, int cable, const uint8_t *b, size_t n) {
 // apart); each pad press is also copied on channel 16 with the pad's own number, for the script's press colours.
 static int note_layout, key_base = 36;   // 0 off, 1 grid (drum), 2 keys
 
+// "audition <note> <velocity>" from the script: a note-on for the selected track (as a pad press in NOTE mode would be),
+// off 250 ms later; sent to the client from the main loop
+static int aud_note = -1, aud_vel, aud_on;
+static long long aud_off_ms;
+
 // controller -> client. Sysex from the controller is only replies (heartbeat, identity, config echoes): dropped.
 typedef struct { int in_sysex; uint8_t st, m[2]; int mn; } upfilt_t;
 
@@ -136,6 +141,11 @@ static void down_msg(io_t *io, const uint8_t *m, size_t n) {
         if (!strncmp(line, "notemap ", 8)) {
             if (!strncmp(line + 8, "keys", 4)) { note_layout = 2; if (line[12] == ' ') key_base = atoi(line + 13); }
             else note_layout = !strcmp(line + 8, "on");
+            return;
+        }
+        if (!strncmp(line, "audition ", 9)) {
+            int nn, vv;
+            if (sscanf(line + 9, "%d %d", &nn, &vv) == 2 && nn >= 0 && nn < 128) { aud_note = nn; aud_vel = vv < 1 ? 1 : vv > 127 ? 127 : vv; aud_on = 0; }
             return;
         }
         fl_cmd(line, send_cb, io);
@@ -247,7 +257,12 @@ int main(int argc, char **argv) {
         int c1 = np;
         pfd[np++] = (struct pollfd){ls, POLLIN, 0};
         if (cl >= 0) pfd[np++] = (struct pollfd){cl, POLLIN, 0};
-        poll(pfd, np, 200);
+        poll(pfd, np, aud_note >= 0 ? 40 : 200);
+        if (aud_note >= 0 && cl >= 0) {
+            uint8_t m[3] = {aud_on ? 0x89 : 0x99, (uint8_t)aud_note, (uint8_t)(aud_on ? 0 : aud_vel)};
+            if (!aud_on) { aud_on = 1; aud_off_ms = (long long)now_ms() + 250; if (write(cl, m, 3) < 0) aud_note = -1; }
+            else if ((long long)now_ms() >= aud_off_ms) { if (write(cl, m, 3) < 0) {} aud_note = -1; }
+        } else if (cl < 0) aud_note = -1;
         for (int i = 0; i < 2; i++) {
             uint8_t b[256], o[400]; ssize_t r;
             while ((r = snd_rawmidi_read(in[i], b, sizeof b)) > 0) {

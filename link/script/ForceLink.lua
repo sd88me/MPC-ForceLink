@@ -512,13 +512,23 @@ end
 -- Press(index, velocity) is documented to take the velocity; Tap(index, velocity) seemed to ignore it (all 16 levels
 -- sounded alike), so the pad is pressed now and released on the next timer tick
 local pendingRelease = {}
+local readd = {}    -- lane notes taken off the script's pad mapping while auditioned: {note, at tick}
 local ourHit            -- the pad number (1-based) we last pressed ourselves, to tell the Live III's own hits apart
 local ourPressTick   -- timer tick of our last press: a last-hit change soon after it is ours, not the Live III's
 local echoHit, echoTick     -- the pad number our press comes back as (see HandleMIDINoteOn)
 local lastHitBase = 1    -- LastHitPad counts from 1, like Tap (checked against our own presses, see followLiveHit)
 local function playSelected(level)
     local vel = math.max(1 / 127, math.min(1.0, level / 16))        -- a float 0-1 (ints above 1 all sounded as 1.0)
-    if not isDrumTrack() then return end                     -- melodic lanes are not auditioned (no pad of the Live III is theirs)
+    if not isDrumTrack() then                                -- melodic lane: flsurf sends the note to the track as a pad press would
+        local note = padNote(selectedPad)
+        local rm, m = nil, dev.mappings.script
+        if note >= PAD0 and note < PAD0 + PADS and m.RemoveNoteToScript then     -- else the script would swallow it as a pad
+            rm = note; m.RemoveNoteToScript(9, note)
+            readd[#readd + 1] = {note = note, at = ticks + 3}
+        end
+        text(string.format("audition %d %d", note, math.max(1, math.min(127, math.floor(level * 127 / 16 + 0.5)))))
+        return
+    end
     local pads = mpc.controlSurface.pads
     local idx = padIndex1(selectedPad)
     ourHit, ourPressTick = idx, ticks
@@ -895,6 +905,40 @@ local function move(dir)
     paintAll()
 end
 
+
+-- SHIFT + NOTE: walk what the script can reach, log every name that could hold the scale / root / pad layout
+local function probeScale()
+    local seen, hits, visited = {}, {}, 0
+    local function walk(v, path, depth)
+        if depth > 4 or visited > 4000 then return end
+        local ty = type(v)
+        if ty ~= "table" and ty ~= "userdata" then return end
+        if seen[v] then return end
+        seen[v] = true; visited = visited + 1
+        local mt = ty == "userdata" and getmetatable(v) or nil
+        local src = ty == "table" and v or (mt and type(mt.__index) == "table" and mt.__index) or nil
+        if not src then return end
+        for k, x in pairs(src) do
+            local name = tostring(k)
+            local p = path .. "." .. name
+            if name:lower():find("scale") or name:lower():find("root") or name:lower():find("key") or name:lower():find("base")
+               or name:lower():find("chrom") or name:lower():find("perform") or name:lower():find("layout") then
+                local val = ""
+                if type(x) ~= "function" and type(x) ~= "table" then val = " = " .. tostring(x) end
+                if type(x) == "table" or type(x) == "userdata" then
+                    local ok, vv = pcall(function() return x.value end)
+                    if ok and vv ~= nil then val = " .value = " .. tostring(vv) end
+                end
+                hits[#hits + 1] = p .. " (" .. type(x) .. ")" .. val
+            end
+            walk(x, p, depth + 1)
+        end
+    end
+    walk(mpc, "mpc", 0)
+    print("ForceLink: probeScale visited " .. visited .. " objects, " .. #hits .. " hits")
+    for i = 1, math.min(#hits, 80) do print("ForceLink: probeScale " .. hits[i]) end
+end
+
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, velocity > 0) end
     if channel == 15 and note >= PAD0 and note < PAD0 + PADS then        -- melodic NOTE: flsurf's copy of a press
@@ -914,6 +958,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     elseif channel == 0 then
         if note == BTN.shift then shift = true
         elseif note == BTN.matrix then setMode("matrix")
+        elseif note == BTN.note and shift then probeScale()
         elseif note == BTN.note then setMode("note")
         elseif note == BTN.step and shift then probeEvents()
         elseif note == BTN.step then setMode("step")
@@ -961,6 +1006,12 @@ function ForceLink.HandleMIDICC(channel, cc, value) end
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    for i = #readd, 1, -1 do
+        if ticks >= readd[i].at then
+            if mode == "step" then dev.mappings.script.AddNoteToScript(9, readd[i].note) end
+            table.remove(readd, i)
+        end
+    end
     for i = #pendingRelease, 1, -1 do
         call(mpc.controlSurface.pads.Release, pendingRelease[i])
         table.remove(pendingRelease, i)
