@@ -29,6 +29,10 @@
 static const uint32_t ORIG[13] = {0xd503233f, 0xa9be7bfd, 0x910003fd, 0xf9404c00, 0xf9400001, 0xf9400821, 0xd63f0020,
 				  0xb40000a0, 0xf9404400, 0xa8c27bfd, 0xd50323bf, 0xd65f03c0, 0xd2800200};
 
+#define SCALE_FN 0x16c1224   /* the pad-perform note layout builder: x0 = this, this+0x118 -> settings (scale +0x260, root +0x2b8) */
+static const uint32_t SCALE_ORIG[2] = {0xd503233f, 0xd10303ff};
+static uintptr_t scale_this;                      /* captured by the veneer each time the builder runs */
+static uint8_t last_scale[3] = {255, 255, 255};
 static ss_host_t host;
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static struct { int note; int64_t start; int step, nsteps; } view = {-1, 0, 240, 32};
@@ -217,8 +221,26 @@ static void answer_request(long n)
 	say("stepsnap: no note %d in [%lld, +%d) to encode", note, (long long)tick, len);
 }
 
+/* the Live III's pad-perform scale type, root note and octave, sent (07 <scale> <root> <octave>) when they change */
+static void scale_check(void)
+{
+	uintptr_t t = scale_this, st;
+	uint32_t v[3];
+	if (!t || rd((void *)(t + 0x118), &st, sizeof st) || !st)
+		return;
+	if (rd((void *)(st + 0x260), &v[0], 4) || rd((void *)(st + 0x2b8), &v[1], 4) || rd((void *)(st + 0x330), &v[2], 4))
+		return;
+	uint8_t m[4] = {0x07, (uint8_t)(v[0] & 0x7f), (uint8_t)(v[1] & 0x7f), (uint8_t)(v[2] & 0x7f)};
+	if (!memcmp(m + 1, last_scale, 3))
+		return;
+	memcpy(last_scale, m + 1, 3);
+	say("stepsnap: pad perform scale %u root %u third field %u (settings at %p)", v[0], v[1], v[2], (void *)st);
+	emit(m, 4);
+}
+
 void ss_snap(void *list)
 {
+	scale_check();
 	if (!evbuf || read_fails > 20)
 		return;
 	uint64_t total = 0;
@@ -329,6 +351,7 @@ void ss_command(const uint8_t *b, size_t n)
 		view.nsteps = b[9] > MAXVIEW ? MAXVIEW : b[9];
 		last_reply_n = 0;                     /* a new view always gets an answer on the next snapshot */
 		last_sent.tv_sec = 0;
+		memset(last_scale, 255, sizeof last_scale);          /* and the scale again */
 		pthread_mutex_unlock(&mtx);
 		uint8_t hello[2] = {0x03, VERSION};
 		emit(hello, 2);
@@ -347,6 +370,36 @@ static uint32_t enc_ldr_lit_x16(const void *from, const void *lit)
 {
 	long off = ((long)(uintptr_t)lit - (long)(uintptr_t)from) / 4;
 	return 0x58000000u | (((uint32_t)off & 0x7ffffu) << 5) | 16;
+}
+
+/* A second, smaller patch: the pad-perform note layout builder's first instruction (paciasp) becomes a jump to a veneer
+ * that stores x0 (its this) in scale_this, runs paciasp and goes on. Only if the function's first two words match. */
+static int hook_scale(uintptr_t base, uint32_t *v)
+{
+	uint8_t *fn = (uint8_t *)(base + SCALE_FN);
+	uint32_t cur[2];
+	if (rd(fn, cur, sizeof cur) || memcmp(cur, SCALE_ORIG, sizeof cur)) {
+		say("stepsnap: scale builder not where expected; the Live III's scale is not read");
+		return -1;
+	}
+	uint32_t *lit = v + 8;
+	v[0] = enc_ldr_lit_x16(&v[0], lit);                  /* ldr x16, =&scale_this */
+	v[1] = 0xf9000200;                                   /* str x0, [x16] */
+	v[2] = 0xd503233f;                                   /* paciasp: the instruction we replaced */
+	v[3] = enc_b(&v[3], fn + 4);
+	*(void **)lit = (void *)&scale_this;
+	__builtin___clear_cache((char *)v, (char *)(v + 12));
+	long pg = sysconf(_SC_PAGESIZE);
+	uintptr_t page = (uintptr_t)fn & ~(uintptr_t)(pg - 1);
+	if (mprotect((void *)page, (size_t)pg, PROT_READ | PROT_WRITE | PROT_EXEC)) {
+		say("stepsnap: mprotect failed for the scale hook (%s)", strerror(errno));
+		return -2;
+	}
+	*(volatile uint32_t *)fn = enc_b(fn, v);
+	__builtin___clear_cache((char *)fn, (char *)fn + 4);
+	mprotect((void *)page, (size_t)pg, PROT_READ | PROT_EXEC);
+	say("stepsnap: scale hook at %p", (void *)fn);
+	return 0;
 }
 
 static int near(const uint8_t *site, long *delta)
@@ -455,6 +508,8 @@ int ss_install(uintptr_t base, const ss_host_t *h, const char *guard)
 	__builtin___clear_cache((char *)site, (char *)site + 4);
 	mprotect((void *)page, (size_t)pg, PROT_READ | PROT_EXEC);
 	say("stepsnap: patched events.GetSize() at %p (veneer %p)", (void *)site, (void *)v);
+	if (!h->encoder)                                  /* the test harness has no such function */
+		hook_scale(base, v + 16);
 	if (guard) {                                   /* still running 30 s later: the patch did no harm, clear the guard */
 		pthread_t t;
 		guard_path = strdup(guard);

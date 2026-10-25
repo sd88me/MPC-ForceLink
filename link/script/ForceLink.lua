@@ -137,11 +137,38 @@ end
 -- the notes and copies each pad press on channel 16 (pad number) for the press colours.
 local keyBase = 48
 local heldPads = {}   -- pad index 0-63 -> true while pressed (melodic NOTE)
-local function keyPitch(row, col) return keyBase + col + 5 * (7 - row) end
+-- The Live III's pad-perform scale, read from MPC by the library (FINDINGS 29): root 0 = A, scale types in MPC's list order.
+-- Chromatic = the 4ths layout; any other scale = the in-key layout (every pad a scale note, root bottom-left, each row 3
+-- steps up). Unknown until the library reports it: chromatic, C.
+local SCALES = {   -- semitone sets; the order is MPC's (device 2026-10-25: 1 Major, 2 Natural Minor, 6 Dorian, 15 Hungarian Gypsy)
+    [0] = {0,1,2,3,4,5,6,7,8,9,10,11}, {0,2,4,5,7,9,11}, {0,2,3,5,7,8,10}, {0,2,3,5,7,8,11}, {0,2,4,7,9}, {0,3,5,7,10},
+    {0,2,3,5,7,9,10}, {0,1,3,5,7,8,10}, {0,2,4,6,7,9,11}, {0,2,4,5,7,9,10}, {0,2,3,5,7,8,10}, {0,1,3,5,6,8,10},
+    {0,3,5,6,7,10}, {0,1,4,5,7,8,10}, {0,2,3,6,7,8,10}, {0,2,3,6,7,8,11}, {0,1,4,5,6,8,11}, {0,2,4,5,7,8,9,11}, {0,2,4,6,8,10},
+}
+local function scaleSet() return SCALES[liveScale and liveScale.type or 0] or SCALES[0] end
+local function rootClass() return liveScale and (liveScale.root + 9) % 12 or 0 end    -- pitch class 0-11, C = 0
+local function inScaleMode() return liveScale ~= nil and liveScale.type ~= 0 and SCALES[liveScale.type] ~= nil end
+local function rootNote() return keyBase - keyBase % 12 + rootClass() end
+local function degreeNote(d)       -- the d-th scale step above the root (d >= 0)
+    local set = scaleSet()
+    return rootNote() + 12 * math.floor(d / #set) + set[d % #set + 1]
+end
+local function keyPitch(row, col)
+    if inScaleMode() then return degreeNote(col + 3 * (7 - row)) end
+    return keyBase + col + 5 * (7 - row)
+end
+local function melodicMapCommand()
+    if inScaleMode() then
+        local mask = 0
+        for _, k in ipairs(scaleSet()) do mask = mask | (1 << k) end
+        return string.format("notemap scale %d %d", rootNote(), mask)
+    end
+    return "notemap keys " .. keyBase
+end
 
 local function mapNoteLayout(drum)
     local m = dev.mappings.pads
-    text(drum and "notemap on" or ("notemap keys " .. keyBase))
+    text(drum and "notemap on" or melodicMapCommand())
     for n = PAD0, PAD0 + PADS - 1 do                   -- the channel-16 copies: to the script on melodic tracks
         if drum then
             if dev.mappings.script.RemoveNoteToScript then dev.mappings.script.RemoveNoteToScript(15, n) end
@@ -189,7 +216,7 @@ local function paintNote()
             local n = keyPitch(row, col)
             if held[n] then setPad(row * 8 + col, 0, 254, 0)                  -- this note: bright green
             elseif heldClass[n % 12] then setPad(row * 8 + col, 0, 84, 34)    -- same note, other octave: dim green
-            elseif n % 12 == 0 then setPad(row * 8 + col, tr, tg, tb)         -- root (C)
+            elseif n % 12 == rootClass() then setPad(row * 8 + col, tr, tg, tb)  -- the root
             else setPad(row * 8 + col, 50, 50, 50) end                        -- other notes: dim white
         end
     end
@@ -341,6 +368,7 @@ local fixedLevel                          -- nil: a new step gets the velocity i
 local created = {}                        -- "note:tick" -> the encoded string CreateNoteEvent returned (to delete it)
 local encCache, pendingDel = {}, {}       -- MPC's own strings for notes it already held (from the library)
 local lastViewSent = -100
+liveScale = nil   -- {type, root, third} from the library (global: HandleMIDISysex is defined before its users)
 
 local function bankA()
     local ok, b = pcall(function() return mpc.controlSurface.pads.CurrentBank.value end)
@@ -349,7 +377,7 @@ end
 
 -- drum track: the pad's note; melodic track: lane p is the chromatic note keyBase + p (no scale: not readable by scripts)
 local function padNote(p)
-    if not isDrumTrack() then return math.max(0, math.min(127, keyBase + p)) end
+    if not isDrumTrack() then return math.max(0, math.min(127, inScaleMode() and degreeNote(p) or keyBase + p)) end
     return bankA() and DEFAULT_NOTES[p + 1] or nil
 end
 
@@ -423,6 +451,10 @@ function ForceLink.HandleMIDISysex(b)
             encCache[key] = nil
             pollEvents()
         end
+    elseif op == 0x07 then                       -- the Live III's pad-perform scale type, root note, third field
+        liveScale = {type = b:byte(4), root = b:byte(5), third = b:byte(6)}
+        print(string.format("ForceLink: Live III pad perform: scale type %d, root %d, third field %d", liveScale.type, liveScale.root, liveScale.third))
+        if mode == "note" and noteDrum == false then text(melodicMapCommand()); heldPads = {}; paintNote() end
     elseif op == 0x04 then
         local h = {}
         local nn = b:byte(4) or 0
@@ -889,7 +921,7 @@ local function move(dir)
         if nb >= 0 and nb + 7 + 35 <= 127 then
             keyBase = nb
             heldPads = {}
-            text("notemap keys " .. keyBase)
+            text(melodicMapCommand())
             paintNote()
             if mpc.ui and mpc.ui.ShowTUIFeedback then mpc.ui.ShowTUIFeedback("Force NOTE: octave " .. (math.floor(keyBase / 12) - 2)) end
         end
@@ -933,6 +965,17 @@ local function probeScale()
             end
             walk(x, p, depth + 1)
         end
+    end
+    for _, nm in ipairs({"padPerform", "keyboardControl"}) do      -- found by the first run; dump them whole
+        local o = mpc.controlSurface[nm]
+        local src = type(o) == "table" and o or (getmetatable(o) and getmetatable(o).__index)
+        if type(src) == "table" then
+            for k, x in pairs(src) do
+                local val = ""
+                if type(x) ~= "function" then local ok, vv = pcall(function() return x.value end); val = ok and vv ~= nil and (" .value = " .. tostring(vv)) or (" = " .. tostring(x)) end
+                print("ForceLink: probeScale " .. nm .. "." .. tostring(k) .. " (" .. type(x) .. ")" .. val)
+            end
+        else print("ForceLink: probeScale " .. nm .. " is " .. type(o)) end
     end
     walk(mpc, "mpc", 0)
     print("ForceLink: probeScale visited " .. visited .. " objects, " .. #hits .. " hits")
@@ -1017,6 +1060,7 @@ function ForceLink.HandleTimer()
         table.remove(pendingRelease, i)
     end
     if snap.on then
+        if mode == "note" and ticks % 4 == 0 then pollEvents() end       -- each poll lets the library look at the scale
         if mode == "step" and snapMode then
             followLiveHit()
             sendView(false)

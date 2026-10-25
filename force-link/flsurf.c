@@ -80,7 +80,14 @@ static void send_cb(void *ctx, int cable, const uint8_t *b, size_t n) {
 // bottom-left pad, the usual drum layout start)
 // "notemap keys <base>": melodic layout as the real Force (FINDINGS 21): base + col + 5 * row-from-bottom (rows a 4th
 // apart); each pad press is also copied on channel 16 with the pad's own number, for the script's press colours.
-static int note_layout, key_base = 36;   // 0 off, 1 grid (drum), 2 keys
+static int note_layout, key_base = 36;   // 0 off, 1 grid (drum), 2 keys, 3 scale
+// "notemap scale <root note> <12-bit mask of the scale's semitones>": every pad a scale note, the bottom-left pad the
+// root, each row starting 3 scale steps above the one below (FINDINGS 21)
+static int scale_n, scale_iv[12];
+static int scale_note(int fb, int col) {
+    int deg = col + 3 * fb, o = deg / scale_n;
+    return key_base + 12 * o + scale_iv[deg % scale_n];
+}
 
 // "audition <note> <velocity>" from the script: a note-on for the selected track (as a pad press in NOTE mode would be),
 // off 250 ms later; sent to the client from the main loop
@@ -114,8 +121,8 @@ static size_t up_filter(upfilt_t *f, const uint8_t *b, size_t n, uint8_t *out) {
         }
         if (note_layout && (f->st == 0x99 || f->st == 0x89 || f->st == 0xA9) && d0 >= 54 && d0 <= 117) {
             int i = d0 - 54, fb = 7 - i / 8, col = i % 8;
-            if (note_layout == 2) {
-                int n = key_base + col + 5 * fb;
+            if (note_layout == 2 || note_layout == 3) {
+                int n = note_layout == 3 ? scale_note(fb, col) : key_base + col + 5 * fb;
                 if (f->st != 0xA9) {                 // the script's copy: channel 16, the pad's own number
                     out[o++] = (uint8_t)((f->st & 0xF0) | 0x0F); out[o++] = d0; out[o++] = f->m[1];
                 }
@@ -139,6 +146,15 @@ static void down_msg(io_t *io, const uint8_t *m, size_t n) {
         size_t l = n - 4 < sizeof line - 1 ? n - 4 : sizeof line - 1;
         memcpy(line, m + 3, l); line[l] = 0;
         if (!strncmp(line, "notemap ", 8)) {
+            if (!strncmp(line + 8, "scale ", 6)) {
+                int rn, mask;
+                if (sscanf(line + 14, "%d %d", &rn, &mask) == 2) {
+                    scale_n = 0;
+                    for (int k = 0; k < 12; k++) if (mask & (1 << k)) scale_iv[scale_n++] = k;
+                    if (scale_n) { note_layout = 3; key_base = rn; }
+                }
+                return;
+            }
             if (!strncmp(line + 8, "keys", 4)) { note_layout = 2; if (line[12] == ' ') key_base = atoi(line + 13); }
             else note_layout = !strcmp(line + 8, "on");
             return;
