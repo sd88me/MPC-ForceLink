@@ -466,3 +466,23 @@ full (AddInfiniteCCToQLink) made values jump and wrap, so the script now twists 
   position itself reliably; `Twist` wraps at the ends. Back to MPC's own infinite-CC mapping, with flsurf capping each
   knob step at +1 / -1 (raw steps were 1-5 when turned fast; one stray opposite step seen). Some plugins page their
   Q-links (a "PAGE" Q-link changes every target), which also looks like jumping.
+
+## 27. Reading a clip's notes from MPC's memory (2026-10-25, offline: 3.10.0.49 binary + QEMU aarch64 harness)
+- `events.GetSize()` (lambda at 0x2f939a0): `wrapper = *(self + 0x98); list = wrapper->vtable[2]()` (the lookup; null throws
+  "Event list does not exist"), then returns the count at `list + 0x88`. The list holds a `std::multiset` of events at
+  `list + 0x60` (header `+0x68`, leftmost node `+0x78`, count `+0x88`); each node's event starts at `node + 0x20`.
+- Event (offsets from the event): time int64 (ticks, 960 per quarter) `+0`; type byte `+8` (3 = note; IsNoteEvent is
+  `type == 3`); velocity float 0-1 `+0x10` (MidiVelocity = trunc((v + sgn(v) / 254) * 127)); length int64 `+0x28`
+  (NoteEnd = time + length); MIDI note byte `+0x30`; ratchet bits 32-34 of the qword at `+0x30` (+1); probability byte
+  `+0x32`; modifier type byte `+0x31`. The serialiser is at 0x2f972c0.
+- `CreateNoteEvent(note, timeCode, velocity, length, probability)` (0x2f9df08) builds the event, INSERTS it
+  (0x1fa6e6c) and returns its encoded string (0x2f9dda0: a field object with version, time, type, channel, selected,
+  muted ..., compressed and base64-wrapped: not reproducible offline). `DeleteEvent(encoded)` needs such a string.
+- Patch: `spoof/stepsnap.c` replaces the `cbz x0, <error>` at 0x2f939bc with a `b` to a veneer in a page mapped within
+  128 MB of it (`cbnz` + long `b` for the error path, then `stp`, `blr` the C reader, `ldp`, `b` back), so no jump
+  into MPC's code is indirect (BTI-safe). It only patches if the 13 words 0x2f939a0-0x2f939d0 are exactly the
+  expected ones (`spoof/check_orig.py`: matches 3.10.0.49, not 3.9.1), reads MPC's memory with `process_vm_readv`
+  (pipe `write()` fallback), and a crash guard file turns it off after two starts that did not survive 30 s.
+- `spoof/stepsnap_test.cpp` (in `build.sh`): a fake GetSize made of the real words, a real `std::multiset` with
+  the same layout, patched and called under QEMU: counts, fields, per-step velocities, registers kept, null list, garbage
+  pointers, the guard. Not yet run against MPC itself.

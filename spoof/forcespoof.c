@@ -13,6 +13,8 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <link.h>
+#include "stepsnap.h"
 
 #define DT "/sys/firmware/devicetree/base/"
 #define HIDE ((const char *)1)
@@ -876,6 +878,25 @@ static int b_on(void)
 	return b;
 }
 
+/* stepsnap (see stepsnap.h): messages for the script go through a pipe into this thread, which puts them on the
+ * Force Link port like anything arriving from the Force; the script's F0 7D 53 commands are taken here, not sent on. */
+static int ss_pipe[2] = {-1, -1};
+
+static void ss_send(const unsigned char *m, size_t n)
+{
+	if (ss_pipe[1] >= 0)
+		(void)!write(ss_pipe[1], m, n);
+}
+
+static void ss_log(const char *l) { note("stepsnap", l); }
+
+static int base_cb(struct dl_phdr_info *i, size_t sz, void *d)
+{
+	(void)sz;
+	*(uintptr_t *)d = i->dlpi_addr;                    /* the first object is the main program (MPC) */
+	return 1;
+}
+
 static void *b_port_thread(void *arg)
 {
 	(void)arg;
@@ -905,6 +926,12 @@ static void *b_port_thread(void *arg)
 	if (me_nostatus)
 		me_nostatus(dec, 1);                      /* full status bytes towards flsurf */
 	note("B: port Force Link open", b_host);
+	if (access(BRIDGE_DIR "stepsnap.off", F_OK) && pipe2(ss_pipe, O_NONBLOCK | O_CLOEXEC) == 0) {
+		static const ss_host_t sh = {ss_send, ss_log};
+		uintptr_t base = 0;
+		dl_iterate_phdr(base_cb, &base);
+		ss_install(base, &sh, BRIDGE_DIR "stepsnap.guard");
+	}
 	int tcp = -1;
 	unsigned char buf[2048];
 	for (;;) {
@@ -922,20 +949,43 @@ static void *b_port_thread(void *arg)
 				close(s);
 			}
 		}
-		struct pollfd p[5];
-		int np = sq_pd(seq, p, 4, POLLIN);
-		if (tcp >= 0)
+		struct pollfd p[6];
+		int np = sq_pd(seq, p, 4, POLLIN), ti = -1, pi = -1;
+		if (tcp >= 0) {
+			ti = np;
 			p[np++] = (struct pollfd){tcp, POLLIN, 0};
+		}
+		if (ss_pipe[0] >= 0) {
+			pi = np;
+			p[np++] = (struct pollfd){ss_pipe[0], POLLIN, 0};
+		}
 		if (poll(p, np, 1000) <= 0)
 			continue;
 		seq_ev_t *ev;
 		while (sq_in(seq, &ev) >= 0 && ev) {         /* from the script: to the Force */
 			long n = me_dec(dec, buf, sizeof buf, ev);
+			if (n >= 4 && buf[0] == 0xF0 && buf[1] == 0x7D && buf[2] == 0x53) {   /* stepsnap command */
+				ss_command(buf + 3, (size_t)n - 4);
+				continue;
+			}
 			if (n > 0 && tcp >= 0 && send(tcp, buf, (size_t)n, MSG_NOSIGNAL) < 0) {
 				close(tcp); tcp = -1; note("B: link lost", NULL);
 			}
 		}
-		if (tcp >= 0 && (p[np - 1].revents & (POLLIN | POLLHUP | POLLERR))) {
+		if (pi >= 0 && (p[pi].revents & POLLIN)) {            /* stepsnap's answers: to the script */
+			ssize_t n = read(ss_pipe[0], buf, sizeof buf);
+			for (ssize_t i = 0; i < n; i++) {
+				seq_ev_t e;
+				memset(&e, 0, sizeof e);
+				if (me_enc(enc, buf[i], &e) == 1) {
+					e.source.port = (unsigned char)port;
+					e.dest.client = 254;
+					e.queue = 253;
+					sq_out(seq, &e);
+				}
+			}
+		}
+		if (ti >= 0 && (p[ti].revents & (POLLIN | POLLHUP | POLLERR))) {
 			ssize_t n = read(tcp, buf, sizeof buf);
 			if (n <= 0) { close(tcp); tcp = -1; note("B: link lost", NULL); continue; }
 			for (ssize_t i = 0; i < n; i++) {         /* from the Force: to the script */
