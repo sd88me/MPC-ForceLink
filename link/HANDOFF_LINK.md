@@ -93,3 +93,20 @@ then `forcelink link`).
   (`ForceLink: qlink <i> bank <b> pos=... value=...`); read it after the next Live III restart.
 - 5 (STEP SEQ, current version): unreliable (other pads' steps appear/disappear, pad select off, bottom-right lacks
   pad colours, bar B lit white only). Rebuild on the shim's event reading + the real Force layout (FINDINGS 23).
+
+## State 2026-10-25 (end of the device test session)
+Working on the device: SHIFT + MENU switch (both devices, after the unique-unit fix), MATRIX, drum NOTE (4 banks),
+Q-links: two Force pages via KNOBS (page 1 = Live III banks 1 + 2, page 2 = 3 + 4), knob j of bank b = MPC Q-link
+4 * (3 - j) + b, empty ones named by the Live's number, MPC's own relative mapping with flsurf capping steps at 1
+(user: "seems better"). Boot stick: Live III comes up in 3.10 + link by itself; Force reboot fine.
+Diagnostics still in the script: one `ForceLink: qlink ...` log line per Q-link change and timer tick (remove when done).
+
+Next, in order (from the real-Force captures, FINDINGS 21-24):
+1. Q-link OLEDs: the large value view while a knob is touched or turned (glyphs to harvest from
+   `local/captures/qlinks.bin`), bipolar bar for pan-like targets.
+2. Melodic NOTE: rows a 4th apart (chromatic), in-key layout (rows 3 scale steps), coloured roots, green press
+   feedback (needs the track's scale/root: not in the script API; chromatic + root C first, or read from MPC).
+3. Drum NOTE: check with a kit using more than 16 pads whether the real Force shows 4 banks (user's photo test).
+4. STEP SEQ rebuild: the real Force page (FINDINGS 23) on real event data from the shim (FINDINGS 25 route).
+Known: the Live III follows to the bank of a pad hit from the Force (MPC behaviour); the Force's MPC once stopped
+answering its controller after SHIFT + NOTE (restart fixed it).
