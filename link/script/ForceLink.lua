@@ -335,7 +335,7 @@ end
 -- colour; the playhead green), rows 4-7 cols 0-3 the pads (selected: white), cols 4-7 the 16 velocity levels.
 -- Without the library (hello not received) or off a drum track in bank A, the legacy page above is used.
 local STEP_TICKS, STEP_ORIGIN = 240, 0   -- 16th note at 960 PPQ; STEP_ORIGIN: tick of step 1 of bar 1 in the event list
-local DEFAULT_NOTES = {37, 36, 42, 82, 40, 38, 46, 44, 48, 47, 45, 43, 49, 55, 51, 53} -- MPC's default A01-A16
+local DEFAULT_NOTES = {36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51} -- this kit's A01-A16 (device 2026-10-25: pads 1-3 hold 36-38)
 local snap = {on = false, byCount = {}, want = 0, src = nil, hist = {}, view = "", lastReply = -100, maxEnd = 0}
 local fixedLevel                          -- nil: a new step gets the velocity it was tapped with
 local created = {}                        -- "note:tick" -> the encoded string CreateNoteEvent returned (to delete it)
@@ -383,6 +383,11 @@ local function pollEvents()
     local q = mpc.currentSequence and mpc.currentSequence.events
     local nc = c and call(c.GetSize) or 0
     local nq = q and call(q.GetSize) or 0
+    if nc ~= snap.lognc or nq ~= snap.lognq then
+        snap.lognc, snap.lognq = nc, nq
+        print(string.format("ForceLink: events: clip %d, sequence %d (pad %d = note %s, histogram %s)", nc, nq, selectedPad,
+                            tostring(padNote(selectedPad)), (function() local t = {} for n, k in pairs(snap.hist or {}) do t[#t + 1] = n .. "x" .. k end return table.concat(t, " ") end)()))
+    end
     if nc > 0 then snap.want, snap.src = nc, c
     elseif nq > 0 then snap.want, snap.src = nq, q
     else snap.want, snap.src = 0, c or q end
@@ -419,6 +424,10 @@ function ForceLink.HandleMIDISysex(b)
         local nn = b:byte(4) or 0
         for i = 0, nn - 1 do h[b:byte(5 + i * 3)] = get7(b, 6 + i * 3, 2) end
         snap.hist = h
+        local t = {}
+        for n, k in pairs(h) do t[#t + 1] = n .. "x" .. k end
+        table.sort(t)
+        print("ForceLink: notes in the list: " .. table.concat(t, " "))
         snap.maxEnd = get7(b, 5 + nn * 3, 5)
     end
 end
