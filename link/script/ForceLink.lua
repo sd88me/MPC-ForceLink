@@ -501,12 +501,14 @@ end
 local pendingRelease = {}
 local ourHit            -- the pad number (1-based) we last pressed ourselves, to tell the Live III's own hits apart
 local ourPressTick   -- timer tick of our last press: a last-hit change soon after it is ours, not the Live III's
+local echoHit, echoTick     -- the pad number our press comes back as (see HandleMIDINoteOn)
 local lastHitBase = 1    -- LastHitPad counts from 1, like Tap (checked against our own presses, see followLiveHit)
 local function playSelected(level)
     local vel = math.max(1 / 127, math.min(1.0, level / 16))        -- a float 0-1 (ints above 1 all sounded as 1.0)
     local pads = mpc.controlSurface.pads
     local idx = padIndex1(selectedPad)
     ourHit, ourPressTick = idx, ticks
+    echoHit, echoTick = idx - 1, ticks                 -- MPC hands our own press back to the script as a pad note
     if pads.Press and pads.Release then
         call(pads.Press, idx, vel)
         pendingRelease[#pendingRelease + 1] = idx
@@ -888,7 +890,9 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 9 and note >= PAD0 and note < PAD0 + PADS then
         local i = note - PAD0
         if mode == "step" then
-            stepPadPressed(i, velocity)
+            local echo = echoTick ~= nil and ticks - echoTick <= 2 and (i == echoHit or i == echoHit + 1)
+            print(string.format("ForceLink: ch9 note %d (pad %d) velocity %d%s", note, i, velocity, echo and " [echo of our press, ignored]" or ""))
+            if velocity > 0 and not echo then stepPadPressed(i, velocity) end
         elseif aperture then
             aperture.TriggerClip(i % 8, math.floor(i / 8))
         end
