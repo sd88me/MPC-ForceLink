@@ -221,8 +221,9 @@ for _ = 1, 16 do ForceLink.HandleTimer() end
 check("stepsnap: without hello a view (note 37 = pad A01, start 0, 240 ticks, 32 steps) is sent every 4 s",
       has(sent, string.char(0x7D, 0x53, 0x01, 37, 0, 0, 0, 0, 0, 1, 112, 32)))
 ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x03, 1))      -- the library says hello
+ForceLink.HandleMIDINoteOn(0, 0x03, 127)                        -- MATRIX
+ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- and STEP SEQ again: now the real-data page is chosen
 ForceLink.HandleTimer()
-check("stepsnap: before the first answer the legacy page is used", true)
 reply(5, {[0] = 100, [9] = 127})
 sent = {}
 ForceLink.HandleTimer()
@@ -253,11 +254,11 @@ presses, releases = {}, {}
 ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 4, 100)              -- level 1 (bottom-left of the bottom-right pads)
 ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16
 ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16 again
-check("stepsnap: a level pad presses the selected pad (2) with that level's velocity", presses[1] == "2@8" and presses[2] == "2@127")
+check("stepsnap: a level pad presses the selected pad (2) with that level as a float 0-1 (1/16, 1)", presses[1] == "2@0.0625" and presses[2] == "2@1.0")
 ForceLink.HandleTimer()
 check("stepsnap: and releases it on the next timer tick", #releases == 3 and releases[1] == 2)
 -- the Live III's own pad hits move the page to that pad
-ForceLink.HandleTimer()                                         -- a hit we made ourselves is not the Live III's
+for _ = 1, 6 do ForceLink.HandleTimer() end                     -- a second or more later: a hit by the Live III itself
 liveHit = 5                                                      -- a Live III pad 5 (A05 = note 40)
 sent = {}
 ForceLink.HandleTimer()
@@ -267,18 +268,25 @@ ForceLink.HandleTimer()
 check("stepsnap: the same pad again changes nothing (no new view sent)", not has(sent, string.char(0x7D, 0x53, 0x01)))
 ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)              -- back to pad 2 (note 36) on the Force
 liveHit = 2; ForceLink.HandleTimer()
-for _ = 1, 22 do ForceLink.HandleTimer() end                    -- no answers for 5 s: the legacy page again
+for _ = 1, 30 do ForceLink.HandleTimer() end                    -- no answers for 7 s: the page stays (no MPC step buttons)
 stepTaps[#stepTaps + 1] = 0
+evcalls = {}
 ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
-check("stepsnap: no answers: back to the legacy page (MPC's step button 4)", stepTaps[#stepTaps] == 4)
-reply(6, {}); ForceLink.HandleTimer()
+check("stepsnap: without answers the real-data page stays: no MPC step button, the tap adds a note", stepTaps[#stepTaps] == 0 and #evcalls == 1)
 mpc.tracks.currentTrack.Type:set("Keygroup")
+evcalls = {}
+ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
+check("stepsnap: a drum track turned keygroup mid-session: the page ignores taps (does not write notes)", #evcalls == 0)
+ForceLink.HandleMIDINoteOn(0, 0x03, 127)
+modeReq = 0
+ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- STEP SEQ entered on a keygroup track
 stepTaps[#stepTaps + 1] = 0
 ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
-check("stepsnap: a keygroup track uses the legacy page", stepTaps[#stepTaps] == 4)
+check("stepsnap: STEP SEQ entered on a keygroup track: the legacy page and MPC's step mode", modeReq > 0 and stepTaps[#stepTaps] == 4)
 ForceLink.HandleMIDINoteOn(0, 0x03, 127)                        -- MATRIX again
 mpc.tracks.currentTrack.Type:set("Drum")
 sent = {}
+modeReq = 0
 ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- STEP SEQ with the library there: no mode request
 check("stepsnap: with the library there MPC's mode is left alone", modeReq == 0)
 check("STEP SEQ on an empty clip slot creates a clip there and selects it", createdClips[#createdClips] == "5,5" and selectedClips[#selectedClips] == "5,5")

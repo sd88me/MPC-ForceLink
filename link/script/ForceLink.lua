@@ -352,11 +352,15 @@ local function padNote(p) return bankA() and DEFAULT_NOTES[p + 1] or nil end
 -- the answer for the list MPC counts now, else the latest one (right after an edit the count has moved on, the answer not yet)
 local function snapRow() return snap.byCount[snap.want] or snap.last end
 
--- the library answers at least every 2 s while it works; without answers for 5 s the legacy page takes over
 -- bar pairs the page can show: those holding notes, plus one more to add to (the clip's own length is not readable)
 local function snapPairs() return math.floor((snap.maxEnd or 0) / (2 * BAR_TICKS)) + 2 end
 
-local function useSnap() return snap.on and isDrumTrack() and padNote(selectedPad) ~= nil and ticks - snap.lastReply < 20 end
+-- The page is chosen when STEP SEQ is entered and stays until it is left (a page that flips between the two while you
+-- work adds notes through MPC's step buttons): the real-data page whenever the library is there and the track is a
+-- drum track in pad bank A; else the old one. In the real-data page a pad bank / track it cannot do shows a dim page.
+local snapMode = false
+local function useSnap() return snapMode end
+local function snapSupported() return isDrumTrack() and padNote(selectedPad) ~= nil end
 
 local function put7(v, n) local t = {}; for i = n, 1, -1 do t[i] = v % 128; v = math.floor(v / 128) end; return string.char(table.unpack(t)) end
 local function get7(b, i, n) local v = 0; for k = 0, n - 1 do v = v * 128 + (b:byte(i + k) or 0) end; return v end
@@ -456,8 +460,10 @@ local function paintStepSnap()
 end
 
 local function paintStep()
-    if useSnap() then return paintStepSnap() end
-    return paintStepLegacy()
+    if not snapMode then return paintStepLegacy() end
+    if snapSupported() then return paintStepSnap() end
+    for p = 0, 63 do setPad(p, 6, 6, 6) end                           -- not a drum track in bank A: nothing to edit here
+    setLed(BTN.left, 0); setLed(BTN.right, 0)
 end
 
 -- tap on step st (0-31): add a note at that tick, or remove it
@@ -494,11 +500,13 @@ end
 -- sounded alike), so the pad is pressed now and released on the next timer tick
 local pendingRelease = {}
 local ourHit            -- the pad number (1-based) we last pressed ourselves, to tell the Live III's own hits apart
+local ourPressTick   -- timer tick of our last press: a last-hit change soon after it is ours, not the Live III's
+local lastHitBase = 1    -- LastHitPad counts from 1, like Tap (checked against our own presses, see followLiveHit)
 local function playSelected(level)
-    local vel = math.max(1, math.min(127, math.floor(127 * level / 16 + 0.5)))
+    local vel = math.max(1 / 127, math.min(1.0, level / 16))        -- a float 0-1 (ints above 1 all sounded as 1.0)
     local pads = mpc.controlSurface.pads
     local idx = padIndex1(selectedPad)
-    ourHit = idx
+    ourHit, ourPressTick = idx, ticks
     if pads.Press and pads.Release then
         call(pads.Press, idx, vel)
         pendingRelease[#pendingRelease + 1] = idx
@@ -515,9 +523,15 @@ local function followLiveHit()
     if lastHit == nil then lastHit = lh; return end
     if lh ~= lastHit then
         lastHit = lh
-        local p, ours = lh - 1, (lh == ourHit)
+        local ours = ourPressTick ~= nil and ticks - ourPressTick <= 3
+        if ours and ourHit then                                    -- our own press shows which base LastHitPad counts from
+            if lh == ourHit then lastHitBase = 1 elseif lh == ourHit - 1 then lastHitBase = 0 end
+            print("ForceLink: LastHitPad counts from " .. lastHitBase .. " (we pressed " .. ourHit .. ", it says " .. lh .. ")")
+        end
+        if ours then ourPressTick = nil end
         ourHit = nil
-        if not ours and p >= 0 and p <= 15 and p ~= selectedPad then
+        local p = lh - lastHitBase
+        if not ours and p >= 0 and p <= 15 and p ~= selectedPad and snapSupported() then
             selectedPad = p
             print("ForceLink: following the Live III's pad " .. lh)
             sendView(true)
@@ -527,8 +541,15 @@ local function followLiveHit()
 end
 
 local function stepPadPressed(i, vel)
-    if not useSnap() then return stepPadPressedLegacy(i) end
+    if not snapMode then return stepPadPressedLegacy(i) end
     local row, col = math.floor(i / 8), i % 8
+    local rec, od = call(mpc.sequencer.IsRecording), mpc.sequencer.OverdubState and mpc.sequencer.OverdubState.value
+    print(string.format("ForceLink: pad %d (row %d col %d) pressed at velocity %d; recording=%s overdub=%s playing=%s", i, row, col,
+                        vel or -1, tostring(rec), tostring(od), tostring(call(mpc.sequencer.IsPlaying))))
+    if not snapSupported() then
+        if mpc.ui and mpc.ui.ShowTUIFeedback then mpc.ui.ShowTUIFeedback("Force STEP SEQ: drum track, pad bank A only") end
+        return
+    end
     if row < 4 then
         toggleStep(row * 8 + col, vel)
     elseif col < 4 then
@@ -612,7 +633,9 @@ local function setMode(newMode)
     if (newMode == "note") ~= (mode == "note") then mapPads(newMode == "note") end
     mode = newMode
     if mode == "step" then ensureClip() end
-    if mode == "step" and snap.on and padNote(selectedPad) then
+    snapMode = false
+    if mode == "step" and snap.on and snapSupported() then
+        snapMode = true
         -- the real-data page needs MPC in a pad mode, not its own step mode (there its pads are step buttons and
         -- its pad lights step lights): leave the mode alone, and start the conversation with the library
         snap.lastReply = ticks
@@ -924,7 +947,7 @@ function ForceLink.HandleTimer()
         table.remove(pendingRelease, i)
     end
     if snap.on then
-        if mode == "step" then
+        if mode == "step" and snapMode then
             followLiveHit()
             sendView(false)
             pollEvents()

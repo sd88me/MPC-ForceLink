@@ -209,3 +209,22 @@ Confirmed on the device: the patch re-installs after the restart, the library's 
 - tapping a set step should remove it (watch for `asked MPC's string` then `(MPC's string): true` in the log);
 - if a step lands one step off, or all steps are shifted: look at the shim log's first notes of the list and set
   `STEP_ORIGIN` in the script.
+
+## STEP SEQ, second hand test and fixes (2026-10-25, later; DEPLOYED)
+Findings from the log of that test: `no clip at 0,6: CreateClip -> nil` (the call returns nothing but the clip is made); from
+10:31:41 the OLD page's `bar N (pair 0) steps ...` lines appear: the page had flipped back to the legacy MPC-step-button
+page (my 5 s "no answers" / bank / track test kept re-deciding), which is what added "random notes", broke pad selection
+and flickered. Changes:
+- **Sticky page**: chosen when STEP SEQ is entered (library there + drum track + pad bank A -> real-data page, else the old
+  page with MPC's step mode) and kept until left. In the real-data page an unsupported track/bank shows a dim page, the TUI
+  says "drum track, pad bank A only", and taps are ignored (they never go to MPC's step buttons).
+- **16 levels**: velocity is passed to `Press` as a float 0-1 (1/16 ... 1): the API returns velocities as floats, so
+  ints 8-127 all clamped to full. If the levels still sound alike, the pad API ignores velocity (then FullLevel, MPC's
+  "full level" pad property, may be on: `pads.FullLevel`).
+- **Following the Live III's pad**: works out from our own presses whether `LastHitPad` counts from 0 or 1 (logged:
+  `LastHitPad counts from N`), and ignores changes within ~1 s of our own press.
+- **Log**: every pad press in the real-data page logs row/col/velocity and `recording= overdub= playing=`: pad presses
+  from the Force are recorded by MPC like any hit when it is recording / overdubbing (that, not the page, may be the
+  "random notes" if they appear while pressing the pad quadrant).
+- A fixed level (a level pad tapped) stays until tapped again: all new steps then get that velocity (the earlier steps
+  at vel 64 in the log were level 8 left on). The selected level is white.
