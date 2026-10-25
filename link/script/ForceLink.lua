@@ -389,15 +389,13 @@ local function listenGrid()
     end
 end
 
--- Q-links: MPC has 16 in 4 banks of 4; the Live III shows one bank on its 4 knobs. The Force's knobs 1-4 follow that
--- bank (liveBank, learnt when a Live III knob turns) and knobs 5-8 the next one (wrapping). KNOBS steps the bank.
-local liveBank = 0
-local twisted = {}       -- MPC Q-link index -> timer tick the Force last turned it (so it is not taken as a Live turn)
-local changed = {}       -- Q-links whose value changed (not by the Force) since the last timer tick
-local lastTarget = {}    -- Q-link index -> its target name when last seen
+-- Q-links: MPC has 16 in 4 banks of 4 (the Live III shows one bank on its 4 knobs). The Force shows 2 pages of 8,
+-- independent of the Live III: page 1 = banks 1 + 2 (knobs 1-4, 5-8), page 2 = banks 3 + 4; KNOBS toggles.
+local forcePage = 0
 -- MPC's Q-link numbering: the Live III's knob j (0-3, left to right) in bank b is Q-link 4 * (3 - j) + b
 -- (device, 2026-10-25: bank 1 = 12, 8, 4, 0; bank 2 = 13, 9, 5, 1)
-local function knobQ(k) return 4 * (3 - k % 4) + (liveBank + (k >= 4 and 1 or 0)) % 4 end
+local function knobBank(k) return forcePage * 2 + (k >= 4 and 1 or 0) end
+local function knobQ(k) return 4 * (3 - k % 4) + knobBank(k) end
 local function knobOf(i) for k = 0, 7 do if knobQ(k) == i then return k end end end
 local qlinkHeld = false -- SHIFT + KNOBS holds the MPC's Q-LINK button until KNOBS is released
 
@@ -409,7 +407,7 @@ local function showQLink(i, barOnly)
     local q = mpc.controlSurface.qlinks[i]
     if not q then return end
     local name = q.TargetName.value
-    if not name or name == "" then name = "Q-LINK " .. (i + 1) end -- no target in this mode: say which Q-link it is
+    if not name or name == "" then name = "Q-LINK " .. (knobBank(k) * 4 + k % 4 + 1) end -- no target: the Live's number
     local ok, pos = pcall(q.GetPosition)
     if not ok or type(pos) ~= "number" then pos = -1 end
     if barOnly and pos >= 0 then
@@ -424,7 +422,7 @@ local function bindKnobs()
     local n = mpc.controlSurface.qlinks.GetNumQLinks()
     for k = 0, 7 do
         if m.RemoveInfiniteCCToQLink then m.RemoveInfiniteCCToQLink(0, 0x10 + k) end
-        dev.mappings.script.AddCCToScript(0, 0x10 + k)       -- turns go through HandleMIDICC (capped steps)
+        dev.mappings.script.AddCCToScript(0, 0x10 + k)       -- turns go through HandleMIDICC (clamped steps)
         if knobQ(k) < n then showQLink(knobQ(k)) end
     end
 end
@@ -433,7 +431,6 @@ local function listenQLinks()
     local n = math.min(16, mpc.controlSurface.qlinks.GetNumQLinks())
     for i = 0, n - 1 do
         local q = mpc.controlSurface.qlinks[i]
-        lastTarget[i] = q.TargetName.value
         q.TargetName:listen(function() showQLink(i) end, deviceName)
         q.ValueString:listen(function()
             -- diagnostics (2026-10-25): what the bar can be drawn from; at most one line per Q-link per timer tick
@@ -441,14 +438,9 @@ local function listenQLinks()
             if (qlinkLogged[i] or -1) ~= now then
                 qlinkLogged[i] = now
                 local okp, pos = pcall(q.GetPosition)
-                print(string.format("ForceLink: qlink %d bank %d pos=%s (%s) value=%s target=%s", i, liveBank,
+                print(string.format("ForceLink: qlink %d page %d pos=%s (%s) value=%s target=%s", i, forcePage,
                     tostring(pos), okp and type(pos) or "error", tostring(q.ValueString.value), tostring(q.TargetName.value)))
             end
-            -- a value change the Force did not cause, on an unchanged target, may be a Live III knob: collected and
-            -- judged on the timer (a load or Q-link mode change updates all of them at once; that is ignored)
-            local t = q.TargetName.value
-            if (twisted[i] or -100) < ticks - 4 and t ~= "" and t == lastTarget[i] then changed[#changed + 1] = i end
-            lastTarget[i] = t
             showQLink(i, true)
         end, deviceName)
     end
@@ -601,7 +593,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note == BTN.step then setMode("step")
         elseif note == BTN.knobs then
             if not shift then
-                liveBank = (liveBank + 1) % 4                 -- KNOBS: step the Q-link bank
+                forcePage = 1 - forcePage                     -- KNOBS: Q-link page 1 (banks 1-2) <-> 2 (banks 3-4)
                 bindKnobs()
             else
                 -- SHIFT + KNOBS: try to open the MPC's Q-link mode menu (its Q-LINK button held); result logged
@@ -631,18 +623,26 @@ function ForceLink.HandleMIDINoteOff(channel, note, velocity)
     end
 end
 
--- Force knobs (CC 0x10-0x17, relative: 1-63 up, 65-127 down). The controller sends large steps when turned fast,
--- which made values jump; each message moves the Q-link by at most 3.
+-- Force knobs (CC 0x10-0x17, relative: 1-63 up, 65-127 down). The controller sends large steps when turned fast and
+-- MPC's own relative Q-link turns wrap at the ends, so the script sets the position itself: each message moves it by
+-- at most 3, clamped to 0-127. While a knob is being turned (within 1 s) it continues from the position it last set,
+-- so a late GetPosition cannot make it jump back.
+local knobPos, knobTick = {}, {}
 function ForceLink.HandleMIDICC(channel, cc, value)
     if channel ~= 0 or cc < 0x10 or cc > 0x17 or value == 0 or value == 64 then return end
     local d = value < 64 and value or value - 128
     if d > 3 then d = 3 elseif d < -3 then d = -3 end
     local i = knobQ(cc - 0x10)
     local q = mpc.controlSurface.qlinks[i]
-    if not q then return end
-    twisted[i] = ticks
-    local turn = q.Twist or q.Rotate
-    if turn then pcall(turn, d, false) end
+    if not q or not q.SetPosition then return end
+    local p = knobPos[i]
+    if not p or (knobTick[i] or -100) < ticks - 4 then
+        local ok, gp = pcall(q.GetPosition)
+        p = (ok and type(gp) == "number") and gp or 64
+    end
+    p = math.max(0, math.min(127, math.floor(p + d)))
+    knobPos[i], knobTick[i] = p, ticks
+    pcall(q.SetPosition, p)
 end
 
 function ForceLink.HandleMIDISysex(bytes) end
@@ -650,9 +650,6 @@ function ForceLink.HandleMIDISysex(bytes) end
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
-    -- exactly one Q-link changed on its own since the last tick: a Live III knob turn; follow its bank
-    if #changed == 1 and changed[1] % 4 ~= liveBank then liveBank = changed[1] % 4; bindKnobs() end
-    changed = {}
     if aperture and not clipProps then
         -- window position, by whichever getter this firmware has (reported once in the log)
         for _, n in ipairs({"GetOriginX", "GetColumn", "GetX"}) do
