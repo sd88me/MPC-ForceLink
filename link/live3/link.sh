@@ -54,7 +54,10 @@ link|b)
     force=$(cat "$K/net.conf.off" 2>/dev/null || true)
     [ -n "$force" ] || { echo "no Force address (net.conf.off)"; exit 1; }
     [ -f "$K/script/ForceLink.ini" ] && [ -f "$K/script/ForceLink.lua" ] || { echo "ForceLink script missing in $K/script"; exit 1; }
-    echo n > "$K/dt.conf"; rm -f "$K/live3.conf" "$K/tap.conf"; echo "$force" > "$K/b.conf"
+    # b.peer (optional): the address of another surface (e.g. an Ableton Move running movelink) used instead of the Force's;
+    # delete the file to go back to the Force. The Live III dials one peer at a time.
+    peer=$(cat "$K/b.peer" 2>/dev/null || true)
+    echo n > "$K/dt.conf"; rm -f "$K/live3.conf" "$K/tap.conf"; echo "${peer:-$force}" > "$K/b.conf"
     mkdir -p "$DEV"; cp "$K/script/ForceLink.ini" "$K/script/ForceLink.lua" "$DEV/"
     dropins_310
     restart "link" ;;
