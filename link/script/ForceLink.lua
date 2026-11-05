@@ -32,11 +32,15 @@ local PASS = {[0x34] = "select", [0x7A] = "copy", [0x26] = "delete", [0x76] = "a
               [0x5D] = "recArm", [0x5E] = "clipStop", [0x74] = "launch", [0x7B] = "assignA", [0x7C] = "assignB",
               [0x35] = "tap", [0x23] = "load", [0x24] = "save", [0x25] = "edit", [0x09] = "clip", [0x0B] = "mixer",
               [0x00] = "navigate", [0x05] = "master", [0x36] = "inc", [0x37] = "dec", [0x31] = "shift"}
+-- The 8 buttons under the track-select row work like the real Force's: MUTE / SOLO / REC ARM / CLIP STOP pick what they do
+local lowerMode = "clipStop"
+local LOWER = {mute = "mute", solo = "solo", recArm = "arm", clipStop = "clipStop"}
 local heldBtn = {}      -- MPC does not tell scripts which button lights it would show: dim = available, bright while held
 local function pass(note, down)
     local c = PASS[note] and mpc.force and mpc.force[PASS[note]]
     if not c then return false end
     heldBtn[note] = down or nil
+    if down and LOWER[PASS[note]] then lowerMode = LOWER[PASS[note]] end
     setLed(note, down and 3 or 1)
     local f = down and c.Press or c.Release
     if f then pcall(f) end
@@ -81,6 +85,18 @@ local function globalPos(col, row)
         if ok1 and ok2 then return gc, gr end
     end
     return col + (originCol or 0), row + (originRow or 0)
+end
+
+local function trackOf(col) local gc = globalPos(col, 0); return gc end
+local function trk(f, ...) local t = mpc.tracks; if t and t[f] then local ok, r = pcall(t[f], ...); if ok then return r end end end
+local function lowerPress(col)
+    if lowerMode == "clipStop" then if aperture then aperture.StopClipsOnTrack(col) end return end
+    local i = trackOf(col)
+    if lowerMode == "mute" then trk("SetMute", i, not trk("GetMute", i))
+    elseif lowerMode == "solo" then trk("SetSolo", i, not trk("GetSolo", i))
+    elseif lowerMode == "arm" then trk("SetTrackRecordArmed", i, not trk("GetTrackRecordArmed", i)) end
+    print(string.format("ForceLink: lower %s col %d track %s: mute=%s solo=%s armed=%s", lowerMode, col, tostring(i),
+          tostring(trk("GetMute", i)), tostring(trk("GetSolo", i)), tostring(trk("GetTrackRecordArmed", i))))
 end
 
 -- clip presence and play state from the global matrix (the per-clip State numbers are not decoded: their enum
@@ -658,8 +674,15 @@ local function paintButtons()
     end
     for i = 0, 7 do
         setLed(LAUNCH0 + i, rowState[i] or 0)
-        setLed(TRACKARM0 + i, colHas[i] or 0)
-        setLed(TRACKSEL0 + i, colHas[i] and 1 or 0)
+        local gi = trackOf(i)
+        local cur = mpc.tracks and mpc.tracks.currentTrack and mpc.tracks.currentTrack.Index
+        local sel = cur and cur.value == gi
+        local lv = colHas[i] or 0
+        if lowerMode == "mute" then lv = (colHas[i] and not trk("GetMute", gi)) and 3 or (colHas[i] and 1 or 0)
+        elseif lowerMode == "solo" then lv = trk("GetSolo", gi) and 3 or (colHas[i] and 1 or 0)
+        elseif lowerMode == "arm" then lv = trk("GetTrackRecordArmed", gi) and 3 or (colHas[i] and 1 or 0) end
+        setLed(TRACKARM0 + i, lv)
+        setLed(TRACKSEL0 + i, sel and 3 or (colHas[i] and 1 or 0))
     end
     -- arrows: lit where the window can move
     if aperture then
@@ -1053,7 +1076,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note == BTN.left then move("left") elseif note == BTN.right then move("right")
         elseif note >= LAUNCH0 and note < LAUNCH0 + 8 then if aperture then aperture.TriggerRow(note - LAUNCH0) end
         elseif note >= TRACKSEL0 and note < TRACKSEL0 + 8 then if aperture then aperture.SelectTrack(note - TRACKSEL0) end
-        elseif note >= TRACKARM0 and note < TRACKARM0 + 8 then if aperture then aperture.StopClipsOnTrack(note - TRACKARM0) end
+        elseif note >= TRACKARM0 and note < TRACKARM0 + 8 then lowerPress(note - TRACKARM0)
         else pass(note, true)
         end
     end
@@ -1089,6 +1112,9 @@ local function recLed()      -- REC bright while recording or overdubbing; UNDO 
     setLed(BTN.rec, on and 3 or 1)
     for _, b in ipairs({BTN.undo, BTN.stop, BTN.stopAll}) do setLed(b, 1) end
     for n in pairs(PASS) do setLed(n, heldBtn[n] and 3 or 1) end
+    for n, name in pairs(PASS) do if LOWER[name] then setLed(n, (LOWER[name] == lowerMode or heldBtn[n]) and 3 or 1) end end
+    local me = mpc.sequencer.MetronomeEnabled
+    setLed(BTN.tap, ((me and me.value) or heldBtn[BTN.tap]) and 3 or 1)
 end
 
 function ForceLink.HandleTimer()
@@ -1177,6 +1203,12 @@ local function report()
     members("currentSequence.events", mpc.currentSequence and mpc.currentSequence.events)
     members("selectedClip.events", mpc.clipMatrix and mpc.clipMatrix.selectedClip and mpc.clipMatrix.selectedClip.events)
     members("force", mpc.force)
+    members("tracks", mpc.tracks)
+    members("tracks[0]", mpc.tracks and mpc.tracks[0])
+    members("tracks[1]", mpc.tracks and mpc.tracks[1])
+    members("engineMode", mpc.engineMode)
+    members("project", mpc.project)
+    members("aperture.trackProperties", aperture and aperture.trackProperties)
     for _, n in ipairs({"copy", "mute", "solo", "arp", "undo", "play", "record"}) do members("cs." .. n, cs[n]) end
     for _, n in ipairs({"undo", "copy", "delete", "arp", "mute", "solo", "recArm", "clipStop", "select", "launch", "assignA", "tap", "matrix", "pads"}) do
         members("force." .. n, mpc.force and mpc.force[n])
@@ -1271,6 +1303,8 @@ function ForceLink.OnLoad()
         local p = mpc.sequencer[n]
         if p and p.listen then pcall(p.listen, p, recLed, deviceName) end
     end
+    local em = mpc.engineMode and mpc.engineMode.CurrentMode
+    if em and em.listen then pcall(em.listen, em, function(v) print("ForceLink: engine mode -> " .. tostring(v)) end, deviceName) end
     recLed()
     paintAll()
     report()
