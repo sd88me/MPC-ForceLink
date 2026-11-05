@@ -25,6 +25,19 @@ local BTN = {play = 0x52, stop = 0x51, rec = 0x49, shift = 0x31,
 -- NOTE mode: quadrant index for the position inside a 2x2 block (1 = top-left, 2 = top-right, 3 = bottom-left,
 -- 4 = bottom-right). A guess until checked on the device.
 local QUAD = {2, 3, 0, 1}   -- checked 2026-10-24: the MPC's quadrant 0/1 are the bottom row
+-- Force buttons MPC already knows (mpc.force.<name>.Press / Release): handed straight to MPC, so they do what they do on
+-- a real Force (COPY, DELETE, SELECT, MUTE, SOLO, ARP, ...; with SHIFT too, which is passed on as well)
+local PASS = {[0x34] = "select", [0x7A] = "copy", [0x26] = "delete", [0x76] = "arp", [0x5B] = "mute", [0x5C] = "solo",
+              [0x5D] = "recArm", [0x5E] = "clipStop", [0x74] = "launch", [0x7B] = "assignA", [0x7C] = "assignB",
+              [0x35] = "tap", [0x23] = "load", [0x24] = "save", [0x25] = "edit", [0x09] = "clip", [0x0B] = "mixer",
+              [0x00] = "navigate", [0x05] = "master", [0x36] = "inc", [0x37] = "dec", [0x31] = "shift"}
+local function pass(note, down)
+    local c = PASS[note] and mpc.force and mpc.force[PASS[note]]
+    if not c then return false end
+    local f = down and c.Press or c.Release
+    if f then pcall(f) end
+    return true
+end
 local mode = "matrix"
 local ticks = 0 -- timer ticks (250 ms)
 local stepSeq, stepTap, stepBright -- the step sequencer object and its functions, found in OnLoad
@@ -1002,6 +1015,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     elseif channel == 0 then
         if note == BTN.shift then
             shift = true
+            pass(note, true)
             local fq = dev.mappings.controlSurface.qlinks            -- SHIFT = fine adjust on the Q-link knobs
             if fq and fq.SetQLinkFineAdjust then pcall(fq.SetQLinkFineAdjust, true) end
         elseif note == BTN.matrix then setMode("matrix")
@@ -1036,6 +1050,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note >= LAUNCH0 and note < LAUNCH0 + 8 then if aperture then aperture.TriggerRow(note - LAUNCH0) end
         elseif note >= TRACKSEL0 and note < TRACKSEL0 + 8 then if aperture then aperture.SelectTrack(note - TRACKSEL0) end
         elseif note >= TRACKARM0 and note < TRACKARM0 + 8 then if aperture then aperture.StopClipsOnTrack(note - TRACKARM0) end
+        else pass(note, true)
         end
     end
 end
@@ -1049,9 +1064,11 @@ function ForceLink.HandleMIDINoteOff(channel, note, velocity)
     end
     if channel == 0 and note == BTN.shift then
         shift = false
+        pass(note, false)
         local fq = dev.mappings.controlSurface.qlinks
         if fq and fq.SetQLinkFineAdjust then pcall(fq.SetQLinkFineAdjust, false) end
     end
+    if channel == 0 and note ~= BTN.shift and PASS[note] then pass(note, false) end
     if channel == 0 and note == BTN.knobs and qlinkHeld then
         local q = mpc.controlSurface.qlink
         if q and q.Release then pcall(q.Release) end
@@ -1155,6 +1172,9 @@ local function report()
     members("currentSequence.events", mpc.currentSequence and mpc.currentSequence.events)
     members("selectedClip.events", mpc.clipMatrix and mpc.clipMatrix.selectedClip and mpc.clipMatrix.selectedClip.events)
     members("force", mpc.force)
+    for _, n in ipairs({"undo", "copy", "delete", "arp", "mute", "solo", "recArm", "clipStop", "select", "launch", "assignA", "tap", "matrix", "pads"}) do
+        members("force." .. n, mpc.force and mpc.force[n])
+    end
     members("controlSurface.qlink", cs.qlink)
     members("sequencer", mpc.sequencer)
     members("currentInstrument", mpc.tracks and mpc.tracks.currentTrack and mpc.tracks.currentTrack.currentInstrument)
