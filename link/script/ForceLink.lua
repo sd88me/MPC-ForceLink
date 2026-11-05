@@ -27,13 +27,17 @@ local BTN = {play = 0x52, stop = 0x51, rec = 0x49, shift = 0x31,
 local QUAD = {2, 3, 0, 1}   -- checked 2026-10-24: the MPC's quadrant 0/1 are the bottom row
 -- Force buttons MPC already knows (mpc.force.<name>.Press / Release): handed straight to MPC, so they do what they do on
 -- a real Force (COPY, DELETE, SELECT, MUTE, SOLO, ARP, ...; with SHIFT too, which is passed on as well)
+local setLed          -- defined with the LED cache below
 local PASS = {[0x34] = "select", [0x7A] = "copy", [0x26] = "delete", [0x76] = "arp", [0x5B] = "mute", [0x5C] = "solo",
               [0x5D] = "recArm", [0x5E] = "clipStop", [0x74] = "launch", [0x7B] = "assignA", [0x7C] = "assignB",
               [0x35] = "tap", [0x23] = "load", [0x24] = "save", [0x25] = "edit", [0x09] = "clip", [0x0B] = "mixer",
               [0x00] = "navigate", [0x05] = "master", [0x36] = "inc", [0x37] = "dec", [0x31] = "shift"}
+local heldBtn = {}      -- MPC does not tell scripts which button lights it would show: dim = available, bright while held
 local function pass(note, down)
     local c = PASS[note] and mpc.force and mpc.force[PASS[note]]
     if not c then return false end
+    heldBtn[note] = down or nil
+    setLed(note, down and 3 or 1)
     local f = down and c.Press or c.Release
     if f then pcall(f) end
     return true
@@ -238,7 +242,7 @@ end
 
 -- button LEDs (CC on the Force: 0 off, 1 dim, 3 bright), cached
 local ledCache = {}
-local function setLed(cc, v)
+function setLed(cc, v)
     if ledCache[cc] == v then return end
     ledCache[cc] = v
     led(cc, v)
@@ -1084,6 +1088,7 @@ local function recLed()      -- REC bright while recording or overdubbing; UNDO 
     local on = (rs and rs.value) or (od and od.value)
     setLed(BTN.rec, on and 3 or 1)
     for _, b in ipairs({BTN.undo, BTN.stop, BTN.stopAll}) do setLed(b, 1) end
+    for n in pairs(PASS) do setLed(n, heldBtn[n] and 3 or 1) end
 end
 
 function ForceLink.HandleTimer()
@@ -1172,6 +1177,7 @@ local function report()
     members("currentSequence.events", mpc.currentSequence and mpc.currentSequence.events)
     members("selectedClip.events", mpc.clipMatrix and mpc.clipMatrix.selectedClip and mpc.clipMatrix.selectedClip.events)
     members("force", mpc.force)
+    for _, n in ipairs({"copy", "mute", "solo", "arp", "undo", "play", "record"}) do members("cs." .. n, cs[n]) end
     for _, n in ipairs({"undo", "copy", "delete", "arp", "mute", "solo", "recArm", "clipStop", "select", "launch", "assignA", "tap", "matrix", "pads"}) do
         members("force." .. n, mpc.force and mpc.force[n])
     end
