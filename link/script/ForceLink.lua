@@ -20,7 +20,8 @@ local dev = ForceLink
 local PAD0, PADS = 54, 64
 local BTN = {play = 0x52, stop = 0x51, rec = 0x49, shift = 0x31,
              up = 0x70, down = 0x71, left = 0x72, right = 0x73,
-             matrix = 0x03, note = 0x04, step = 0x75, knobs = 0x01}
+             matrix = 0x03, note = 0x04, step = 0x75, knobs = 0x01,
+             undo = 0x43, stopAll = 0x5F, tap = 0x35}
 -- NOTE mode: quadrant index for the position inside a 2x2 block (1 = top-left, 2 = top-right, 3 = bottom-left,
 -- 4 = bottom-right). A guess until checked on the device.
 local QUAD = {2, 3, 0, 1}   -- checked 2026-10-24: the MPC's quadrant 0/1 are the bottom row
@@ -999,7 +1000,10 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
             aperture.TriggerClip(i % 8, math.floor(i / 8))
         end
     elseif channel == 0 then
-        if note == BTN.shift then shift = true
+        if note == BTN.shift then
+            shift = true
+            local fq = dev.mappings.controlSurface.qlinks            -- SHIFT = fine adjust on the Q-link knobs
+            if fq and fq.SetQLinkFineAdjust then pcall(fq.SetQLinkFineAdjust, true) end
         elseif note == BTN.matrix then setMode("matrix")
         elseif note == BTN.note and shift then probeScale()
         elseif note == BTN.note then setMode("note")
@@ -1019,6 +1023,14 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
             end
         elseif note == BTN.play then mpc.sequencer.TogglePlay()
         elseif note == BTN.rec then mpc.sequencer.Record()
+        elseif note == BTN.stop then call(mpc.sequencer.Stop)
+        elseif note == BTN.stopAll then if mpc.clipMatrix then call(mpc.clipMatrix.StopAllClips) end
+        elseif note == BTN.undo then                          -- UNDO; SHIFT + UNDO = redo
+            local cm = mpc.commandManager
+            if cm then call(shift and cm.Redo or cm.Undo) end
+        elseif note == BTN.tap and shift then                 -- SHIFT + TAP TEMPO: metronome on/off
+            local sq = mpc.sequencer
+            if sq.SetMetronomeEnabled and sq.MetronomeEnabled then call(sq.SetMetronomeEnabled, not sq.MetronomeEnabled.value) end
         elseif note == BTN.up then move("up") elseif note == BTN.down then move("down")
         elseif note == BTN.left then move("left") elseif note == BTN.right then move("right")
         elseif note >= LAUNCH0 and note < LAUNCH0 + 8 then if aperture then aperture.TriggerRow(note - LAUNCH0) end
@@ -1035,7 +1047,11 @@ function ForceLink.HandleMIDINoteOff(channel, note, velocity)
         if mode == "note" then paintNote() end
         return
     end
-    if channel == 0 and note == BTN.shift then shift = false end
+    if channel == 0 and note == BTN.shift then
+        shift = false
+        local fq = dev.mappings.controlSurface.qlinks
+        if fq and fq.SetQLinkFineAdjust then pcall(fq.SetQLinkFineAdjust, false) end
+    end
     if channel == 0 and note == BTN.knobs and qlinkHeld then
         local q = mpc.controlSurface.qlink
         if q and q.Release then pcall(q.Release) end
@@ -1045,6 +1061,13 @@ end
 
 function ForceLink.HandleMIDICC(channel, cc, value) end
 
+
+local function recLed()      -- REC bright while recording or overdubbing; UNDO / STOP / STOP ALL dim
+    local rs, od = mpc.sequencer.RecordState, mpc.sequencer.OverdubState
+    local on = (rs and rs.value) or (od and od.value)
+    setLed(BTN.rec, on and 3 or 1)
+    for _, b in ipairs({BTN.undo, BTN.stop, BTN.stopAll}) do setLed(b, 1) end
+end
 
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
@@ -1083,6 +1106,7 @@ function ForceLink.HandleTimer()
         if valueUntil[k] and valueUntil[k] < ticks and not touched[k] then valueUntil[k] = nil; showQLink(knobQ(k)) end
     end
     if ticks % 16 == 0 then for k = 0, 7 do showQLink(knobQ(k)) end end -- and the OLEDs every 4 s
+    recLed()
     paintAll()
 end
 
@@ -1216,6 +1240,12 @@ function ForceLink.OnLoad()
     led(BTN.play, mpc.sequencer.Playing.value and 3 or 1)
     mpc.sequencer.Playing:listen(function(p) led(BTN.play, p and 3 or 1) end, deviceName)
     led(BTN.matrix, 3); led(BTN.note, 1); led(BTN.step, 1)
+    -- REC lit while recording (bright) or overdubbing; UNDO / STOP / STOP ALL dim
+    for _, n in ipairs({"RecordState", "OverdubState"}) do
+        local p = mpc.sequencer[n]
+        if p and p.listen then pcall(p.listen, p, recLed, deviceName) end
+    end
+    recLed()
     paintAll()
     report()
     dev.timer.Start(250)
@@ -1224,6 +1254,10 @@ end
 function ForceLink.OnUnload()
     dev.timer.Stop()
     mpc.sequencer.Playing:stopListening(deviceName)
+    for _, n in ipairs({"RecordState", "OverdubState"}) do
+        local p = mpc.sequencer[n]
+        if p and p.stopListening then pcall(p.stopListening, p, deviceName) end
+    end
     for row = 0, 7 do for col = 0, 7 do
         sysex(string.char(0x47, 0x7F, 0x40, 0x65, 0x00, 0x04, row * 8 + col, 0, 0, 0))
     end end
