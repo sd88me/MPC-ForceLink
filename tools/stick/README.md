@@ -1,6 +1,6 @@
 # The Live III boot stick (forcelink's "normal setup")
 
-**Superseded 2026-10-24:** the boot stick now comes from the separate repo `~/mpc310-on-391` (`build_stick.py`), which
+**Obsolete (2026-11-05: the Live III runs stock MPC 3.10.1.8, no overlay stick needed). Superseded 2026-10-24:** the boot stick now comes from the separate repo `~/mpc310-on-391` (`build_stick.py`), which
 includes this boot hook. Notes below are kept for history.
 
 The Live III's `/etc` is not persistent and its root is read-only, so the only boot-time hook is MPC's stock USB

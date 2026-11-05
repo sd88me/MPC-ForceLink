@@ -5,9 +5,9 @@ tried by hand.
 The two setups are **stock** and **link** (the Force as an extra surface for the Live III; formerly "B").
 
 **Normal setup (2026-10-24, device):** the Live III's home setup is link (`home.conf`): its boot stick
-(`tools/stick/`) brings it up hands-free in MPC 3.10 + the Force link at every boot, and it stays there. MAIN + MENU
+brings it up in the Force link at every boot (stock MPC 3.10.1.x), and it stays there. MAIN + MENU
 on either device toggles **only the Force** (stock <-> link); the Live III does not restart. `forcelink stock` on the
-dev box still gives plain 3.9.1 for plugin work (until the next reboot).
+dev box turns the link off on the Live III without a reboot.
 
 ## Use
 On either device: **hold MAIN + MENU** about 1.5 s until MENU blinks, let go, **press MENU** within 8 s. Both

@@ -504,3 +504,25 @@ The note layout builder (0x16c1224, x0 = this) reads them via `this+0x118`, plus
 hooks that function's entry to keep `this` and reads the three ints (fault-safe) on every events poll.
 Device readings: root 0 = A (C = 3, D = 5, F# = 9); scale types in MPC's list order with Chromatic first (Major 1,
 Natural Minor 2, Dorian 6, Hungarian Gypsy 15). Sysex `F0 7D 53 07 <type> <root> <third> F7` to the script.
+
+## 30. Port to stock MPC 3.10.1.8; Akai's MPK mini scripts; MPC's own Force controls (2026-11-05, device)
+- **Offsets, 3.10.1.8 (build 38fdde70994):** events.GetSize 0x2fdb860 (patch site +0x1c), scale/root builder 0x16db5e4,
+  event encoder 0x2fe5c60 (3.10.0.49: 0x2f939a0 / 0x16c1224 / 0x2f9dda0). Found by matching instruction words with
+  PC-relative operands masked. The GetSize words are identical; the encoder's two adrp/ldr words differ. `stepsnap.c`
+  has a table of builds and checks the code of each before patching. Scale/root struct offsets (+0x260, +0x2b8) were
+  not re-verified separately beyond the builder matching.
+- **Script signing is unchanged:** the 3.10.0.49 salt gives the right checksum for Akai's shipped `mpkMiniMkIV.lua` and
+  for the Addin Restore script on 3.10.1.8. The salt is not at the old file offset in 3.10.1.8 (not located); the
+  decode loop uses the same key.
+- **Akai's scripts** (`/usr/share/Akai/SME0/Devices/Akai/`: only mpkMiniMkIV and mpkMiniPlusII) use the same API as
+  ForceLink. New to us: `commandManager.Undo/Redo`, `sequencer.Stop/SetMetronomeEnabled`, `clipMatrix.StopAllClips`,
+  `qlinks.SetQLinkFineAdjust`, `mappings.tracks.mutes.AddNoteToTrackMute`, `mappings.pads.AddNoteToMpcPad`.
+- **`mpc.force.<name>`**: one control per Force button (arp, assignA/B, clip, clipStop, copy, crossfader, cursor*, dataDial,
+  dec/inc, delete, edit, launch, load, master, matrix, menu, mixer, mute, navigate, note, pads, qlink(s), recArm,
+  rowLaunch1-8, save, select, shift, solo, stepSeq, stop, stopAll, tap, trackAssign1-8, trackSelect1-8, undo), each with
+  Press / Release / Hold / DoublePress / Help. ForceLink hands Force buttons on to these (MPC does what a real Force does).
+  Scripts get no LED state from MPC for them: lights are dim / bright-while-held, or derived from readable state.
+- **Per-track state** is in `mpc.tracks` (GetMute/SetMute, GetSolo/SetSolo, GetTrackRecordArmed/SetTrackRecordArmed(index));
+  the 8 buttons under track select follow MUTE / SOLO / REC ARM / CLIP STOP with it. Track index = global matrix column
+  (assumed 0-based; each press is logged).
+- The combo is MAIN + MENU (Force: MATRIX + MENU) because 3.10.1 uses SHIFT + MENU; confirm window 8 s.

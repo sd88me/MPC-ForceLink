@@ -3,8 +3,8 @@
 # START HERE: state at the end of the 2026-10-25 session (read this block first; everything below is history)
 
 ## What this is
-An Akai Force used as an extra control surface for an MPC Live III. Live III: MPC OS 3.9.1 (kept for its USB-script SSH
-route) running the MPC 3.10.0.49 app on top of it, started at every boot by a USB stick; the Force's own MPC is stopped
+An Akai Force used as an extra control surface for an MPC Live III. Live III: stock MPC 3.10.1.8 (since 2026-11-05; the
+3.9.1 + 3.10.0.49 overlay kit is gone); the Force's own MPC is stopped
 and `flsurf` serves its controller (pads, buttons, knobs, OLEDs) over TCP to a signed MPC controller script
 (`ForceLink.lua`) on the Live III. Two setups: **link** (this) and **stock** (both devices on their own MPC; "version A/B"
 are retired names, A is archived in `archive/force-identity/`).
@@ -32,10 +32,9 @@ are retired names, A is archived in `archive/force-identity/`).
   Force `/tmp/forcelink.log` (flsurf; `-r` adds raw bytes), `/tmp/forcelink-switch.log` (stock addin).
 
 ## Device state right now (checked 2026-10-25, matches the builds)
-Live III: MPC 3.10.0.49 in link, home setup `link`, shim with the stepsnap patch active (guard counter 0, no
-`stepsnap.off`). Force: `flsurf` running (its MPC stopped). Boot stick (LEXAR, in the Live III) brings the Live III up in
-3.10 + link by itself at every boot (hands-free, ~30 s; `disable-310` file on the stick = plain 3.9.1; old sticks in
-`autorun.prev*`). MAIN + MENU (hold, release, MENU) toggles the Force stock <-> link from either device.
+Live III: MPC 3.10.1.8 in link, home setup `link`, shim with the stepsnap patch active (guard counter 0, no
+`stepsnap.off`). Force: `flsurf` running (its MPC stopped). The addin (`forcelink addins`) loads the shim in every MPC start; the home setup brings link up. After a reboot the /run drop-in
+may need `forcelink addins` again (see docs/ADDINS.md). MAIN + MENU (hold, release, MENU) toggles the Force stock <-> link from either device.
 
 ## What works (device-verified unless noted)
 MAIN + MENU switch; MATRIX (8x8 clip window, colours, launch, arrows); drum NOTE (4 banks of 4x4 as the real Force:
@@ -91,8 +90,7 @@ docs/DEVICE_TESTS.md has the plan (sections 3, 4, 5).
 ## Safety switches and rules
 - Patch off: `touch /data/mpc-addins/forcespoof/stepsnap.off` on the Live III, restart MPC. It also disables itself after
   two starts that did not survive 30 s (`stepsnap.guard`; delete it to re-arm).
-- Back to plain: `link/forcelink stock`, or reboot the Live III with the stick out. A reboot always comes up in stock/3.9.1
-  unless the stick is in.
+- Back to plain: `link/forcelink stock`.
 - Ask before restarting MPC when the user may have a project open (each Live III deploy restarts it); never run a build
   whose QEMU preload test failed; stage files as `.new` then `mv`; the safety classifier stops long low-level C blocks
   (write them in small edits); user approval does not override it.

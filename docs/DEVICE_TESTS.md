@@ -1,7 +1,6 @@
 # Device test plan (staged 2026-10-25)
 
-State when staged: both devices run exactly the repo's builds (checked by checksum). Live III: MPC 3.10.0.49 + link from
-the boot stick, ForceLink script loaded, waiting for the Force. Force: stock MPC with the `forcelink-switch` addin
+State when staged: both devices run exactly the repo's builds (checked by checksum). Live III: MPC 3.10.1.8 + link, ForceLink script loaded, waiting for the Force. Force: stock MPC with the `forcelink-switch` addin
 ready. Save projects first: every switch restarts MPC on the device that switches.
 
 Report per step: OK, or what you saw. Log reading is done from the dev box (commands in brackets).
