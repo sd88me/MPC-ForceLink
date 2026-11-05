@@ -20,7 +20,7 @@
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif
 #define VERSION 1
-#define SITE 0x2f939bc   /* cbz x0, <error path> in events.GetSize(), right after the list lookup returns */
+#define SITE (gs_off + 0x1c)   /* cbz x0, <error path> in events.GetSize(), right after the list lookup returns */
 #define MAXEV 16384
 #define MAXVIEW 64
 
@@ -29,7 +29,13 @@
 static const uint32_t ORIG[13] = {0xd503233f, 0xa9be7bfd, 0x910003fd, 0xf9404c00, 0xf9400001, 0xf9400821, 0xd63f0020,
 				  0xb40000a0, 0xf9404400, 0xa8c27bfd, 0xd50323bf, 0xd65f03c0, 0xd2800200};
 
-#define SCALE_FN 0x16c1224   /* the pad-perform note layout builder: x0 = this, this+0x118 -> settings (scale +0x260, root +0x2b8) */
+#define SCALE_FN scale_fn_off   /* the pad-perform note layout builder: x0 = this, this+0x118 -> settings (scale +0x260, root +0x2b8) */
+static uintptr_t scale_fn_off = 0x16c1224, enc_off = 0x2f9dda0, gs_off = 0x2f939a0;
+/* Known builds: events.GetSize(), its patch site, the scale builder and the event encoder (3.10.1.8: FINDINGS 30). */
+static const struct { const char *name; uintptr_t gs, scale, enc; uint32_t enc_w2, enc_w3; } BUILDS[] = {
+	{"3.10.0.49", 0x2f939a0, 0x16c1224, 0x2f9dda0, 0xd0027221, 0xf9467821},
+	{"3.10.1.8", 0x2fdb860, 0x16db5e4, 0x2fe5c60, 0xd0027b61, 0xf9445c21},
+};
 static const uint32_t SCALE_ORIG[2] = {0xd503233f, 0xd10303ff};
 static uintptr_t scale_this;                      /* captured by the veneer each time the builder runs */
 static uint8_t last_scale[3] = {255, 255, 255};
@@ -47,7 +53,7 @@ static struct { int active, note; int64_t tick; int len; } req;         /* a pen
 typedef struct { char *p; size_t len; union { size_t cap; char buf[16]; } u; } cxxstr;   /* a std::string, by value */
 typedef cxxstr (*enc_fn)(const void *event);                           /* MPC's event -> string (0x2f9dda0) */
 static enc_fn encoder;
-static const uint32_t ENC_WORDS[8] = {0xd503233f, 0xd10243ff, 0xd0027221, 0xf9467821, 0xa9057bfd, 0x910143fd, 0xa90653f3, 0xaa0803f3};
+static uint32_t ENC_WORDS[8] = {0xd503233f, 0xd10243ff, 0xd0027221, 0xf9467821, 0xa9057bfd, 0x910143fd, 0xa90653f3, 0xaa0803f3};
 
 static void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static void say(const char *fmt, ...)
@@ -442,10 +448,20 @@ static void *clear_guard(void *arg)
 int ss_install(uintptr_t base, const ss_host_t *h, const char *guard)
 {
 	host = *h;
-	uint8_t *fn = (uint8_t *)(base + 0x2f939a0);
+	uint8_t *fn = NULL;
 	uint32_t cur[13];
-	if (rd(fn, cur, sizeof cur) || memcmp(cur, ORIG, sizeof ORIG)) {
-		say("stepsnap: not MPC 3.10.0.49 (code at the patch site differs); left alone");
+	for (unsigned b = 0; b < sizeof BUILDS / sizeof *BUILDS; b++) {
+		gs_off = BUILDS[b].gs; scale_fn_off = BUILDS[b].scale; enc_off = BUILDS[b].enc;
+		ENC_WORDS[2] = BUILDS[b].enc_w2; ENC_WORDS[3] = BUILDS[b].enc_w3;
+		fn = (uint8_t *)(base + gs_off);
+		if (!rd(fn, cur, sizeof cur) && !memcmp(cur, ORIG, sizeof ORIG)) {
+			say("stepsnap: MPC %s", BUILDS[b].name);
+			break;
+		}
+		fn = NULL;
+	}
+	if (!fn) {
+		say("stepsnap: not a known MPC build (code at the patch site differs); left alone");
 		return -1;
 	}
 	/* crash guard: two starts in a row that did not survive 30 s switch the patch off */
@@ -471,8 +487,8 @@ int ss_install(uintptr_t base, const ss_host_t *h, const char *guard)
 		encoder = (enc_fn)h->encoder;
 	} else {
 		uint32_t w[8];
-		if (!rd((void *)(base + 0x2f9dda0), w, sizeof w) && !memcmp(w, ENC_WORDS, sizeof w))
-			encoder = (enc_fn)(base + 0x2f9dda0);
+		if (!rd((void *)(base + enc_off), w, sizeof w) && !memcmp(w, ENC_WORDS, sizeof w))
+			encoder = (enc_fn)(base + enc_off);
 		else
 			say("stepsnap: MPC's event encoder not where expected; deleting MPC's own notes is off");
 	}
@@ -485,7 +501,7 @@ int ss_install(uintptr_t base, const ss_host_t *h, const char *guard)
 		return -4;
 	}
 	uint32_t *v = (uint32_t *)((uint8_t *)fn + delta);   /* the veneer, in its own page next to MPC's code */
-	uint8_t *site = fn + (SITE - 0x2f939a0);
+	uint8_t *site = fn + (SITE - gs_off);
 	uint32_t *lit = v + 10;
 	v[0] = 0xb5000040;                                  /* cbnz x0, v[2]: a list was found */
 	v[1] = enc_b(&v[1], fn + 0x30);                     /* null: the original error path (cbz's own target) */
