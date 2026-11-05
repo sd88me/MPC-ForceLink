@@ -1,12 +1,12 @@
-// SHIFT + MENU setup switch, shared by the Live III addin, flsurf and the Force addin (docs/DEVICE_SWITCH.md).
-// Hold SHIFT + MENU for COMBO_HOLD_MS: armed (caller blinks MENU). Then MENU alone within COMBO_CONFIRM_MS: switch.
+// MAIN + MENU setup switch, shared by the Live III addin, flsurf and the Force addin (docs/DEVICE_SWITCH.md).
+// Hold MAIN + MENU for COMBO_HOLD_MS: armed (caller blinks MENU). Then MENU alone within COMBO_CONFIRM_MS: switch.
 // Any other button or pad press while armed, or the timeout, cancels.
 #ifndef COMBO_H
 #define COMBO_H
 #include <stdint.h>
 
 #define COMBO_HOLD_MS 1500
-#define COMBO_CONFIRM_MS 4000
+#define COMBO_CONFIRM_MS 8000
 
 enum { COMBO_NONE, COMBO_ARMED, COMBO_CANCEL, COMBO_SWITCH };
 

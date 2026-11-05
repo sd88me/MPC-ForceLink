@@ -1,4 +1,4 @@
-// Offline test of the SHIFT + MENU setup switch: gcc -Wall -o t combo_test.c combo.c && ./t
+// Offline test of the MAIN + MENU setup switch: gcc -Wall -o t combo_test.c combo.c && ./t
 #include "combo.h"
 #include <stdio.h>
 
@@ -35,7 +35,7 @@ int main(void) {
     combo_init(&c, SH, MN);                                   // SHIFT still held at confirm: no switch
     combo_event(&c, SH, 1, 1, 0); combo_event(&c, MN, 1, 1, 10); combo_tick(&c, 1600);
     combo_event(&c, MN, 0, 1, 1700);
-    CHECK(combo_event(&c, MN, 1, 1, 1800) == COMBO_NONE, "SHIFT + MENU again: no switch");
+    CHECK(combo_event(&c, MN, 1, 1, 1800) == COMBO_NONE, "MAIN + MENU again: no switch");
     puts(fails ? "FAILURES" : "ALL OK");
     return fails != 0;
 }

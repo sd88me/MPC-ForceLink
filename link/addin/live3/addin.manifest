@@ -1,8 +1,8 @@
 # Live III side of forcelink, for the shared addin installer (installer/): the shim, always loaded, also in stock.
-# Inert in stock except for the SHIFT + MENU setup switch (switch.conf, written by `forcelink addins`).
+# Inert in stock except for the MAIN + MENU setup switch (switch.conf, written by `forcelink addins`).
 ADDIN_ID=forcespoof
 ADDIN_NAME="forcelink (Live III)"
 ADDIN_SO=forcespoof.so
 ADDIN_CONF=""
 ADDIN_FILES=""
-ADDIN_DONE="forcelink: hold SHIFT + MENU until MENU blinks, then press MENU to switch the Force between stock and link."
+ADDIN_DONE="forcelink: hold MAIN + MENU until MENU blinks, then press MENU to switch the Force between stock and link."

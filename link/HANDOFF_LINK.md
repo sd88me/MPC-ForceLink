@@ -25,7 +25,7 @@ are retired names, A is archived in `archive/force-identity/`).
   `spoof/stepsnap_test.cpp`, preload tests of both libraries). **Never deploy a build whose preload test failed.**
 - `link/forcelink install` (files to both devices, nothing restarts), then `link/forcelink link` (restarts `flsurf` on the
   Force and MPC on the Live III: closes the open project) or just on the Live III: `sh /data/mpc-addins/forcespoof/link.sh link`
-  over SSH. `link/forcelink stock` / `status` / `addins` (SHIFT + MENU switch addins) / `cap start|stop <name>` (usbmon
+  over SSH. `link/forcelink stock` / `status` / `addins` (MAIN + MENU switch addins) / `cap start|stop <name>` (usbmon
   capture of the real Force, Force in stock). SSH is root key login; the Live III's comes from the boot stick (below).
 - Script change = signed `.ini` + `.lua` in `/nvme/MPC Documents/Devices/ForceLink/` on the Live III (done by `link.sh link`).
 - Logs: Live III `journalctl -u acvs | grep ForceLink` (script `print`s), `/tmp/forcespoof.log` (shim + `stepsnap:` lines);
@@ -35,10 +35,10 @@ are retired names, A is archived in `archive/force-identity/`).
 Live III: MPC 3.10.0.49 in link, home setup `link`, shim with the stepsnap patch active (guard counter 0, no
 `stepsnap.off`). Force: `flsurf` running (its MPC stopped). Boot stick (LEXAR, in the Live III) brings the Live III up in
 3.10 + link by itself at every boot (hands-free, ~30 s; `disable-310` file on the stick = plain 3.9.1; old sticks in
-`autorun.prev*`). SHIFT + MENU (hold, release, MENU) toggles the Force stock <-> link from either device.
+`autorun.prev*`). MAIN + MENU (hold, release, MENU) toggles the Force stock <-> link from either device.
 
 ## What works (device-verified unless noted)
-SHIFT + MENU switch; MATRIX (8x8 clip window, colours, launch, arrows); drum NOTE (4 banks of 4x4 as the real Force:
+MAIN + MENU switch; MATRIX (8x8 clip window, colours, launch, arrows); drum NOTE (4 banks of 4x4 as the real Force:
 unconfirmed that the real one shows 4 banks, it showed one with a 16-pad kit); Q-links: 2 Force pages via KNOBS (Live III
 banks 1+2 / 3+4), knob j of bank b = MPC Q-link `4*(3-j)+b`, MPC's own relative mapping with flsurf capping steps at +-1,
 name view + large value view while touched (pixel-identical to the real Force, built, not hand-tested), pan bars;
@@ -200,7 +200,7 @@ then `forcelink link`).
   pad colours, bar B lit white only). Rebuild on the shim's event reading + the real Force layout (FINDINGS 23).
 
 ## State 2026-10-25 (end of the device test session)
-Working on the device: SHIFT + MENU switch (both devices, after the unique-unit fix), MATRIX, drum NOTE (4 banks),
+Working on the device: MAIN + MENU switch (both devices, after the unique-unit fix), MATRIX, drum NOTE (4 banks),
 Q-links: two Force pages via KNOBS (page 1 = Live III banks 1 + 2, page 2 = 3 + 4), knob j of bank b = MPC Q-link
 4 * (3 - j) + b, empty ones named by the Live's number, MPC's own relative mapping with flsurf capping steps at 1
 (user: "seems better"). Boot stick: Live III comes up in 3.10 + link by itself; Force reboot fine.

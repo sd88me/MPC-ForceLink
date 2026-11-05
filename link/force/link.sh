@@ -15,7 +15,7 @@ start() {   # start <daemon> [args]
     echo "Force: $1 $(pidof "$1" || echo FAILED), acvs $(systemctl is-active acvs || true)"; cat /tmp/forcelink.log
 }
 case "${1:-status}" in
-switch)   # from the SHIFT + MENU setup switch (addin, flsurf): only acts if the setup differs
+switch)   # from the MAIN + MENU setup switch (addin, flsurf): only acts if the setup differs
     want=$2; [ "$want" = b ] && want=link             # older name
     case "$want" in stock|link|toggle) ;; *) echo "usage: $0 switch stock|link|toggle"; exit 2 ;; esac
     now=$([ -n "$(pidof flsurf || true)" ] && echo link || echo stock)

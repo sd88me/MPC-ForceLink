@@ -5,12 +5,12 @@ tried by hand.
 The two setups are **stock** and **link** (the Force as an extra surface for the Live III; formerly "B").
 
 **Normal setup (2026-10-24, device):** the Live III's home setup is link (`home.conf`): its boot stick
-(`tools/stick/`) brings it up hands-free in MPC 3.10 + the Force link at every boot, and it stays there. SHIFT + MENU
+(`tools/stick/`) brings it up hands-free in MPC 3.10 + the Force link at every boot, and it stays there. MAIN + MENU
 on either device toggles **only the Force** (stock <-> link); the Live III does not restart. `forcelink stock` on the
 dev box still gives plain 3.9.1 for plugin work (until the next reboot).
 
 ## Use
-On either device: **hold SHIFT + MENU** about 1.5 s until MENU blinks, let go, **press MENU** within 4 s. Both
+On either device: **hold MAIN + MENU** about 1.5 s until MENU blinks, let go, **press MENU** within 8 s. Both
 devices switch to the other setup (MPC restarts on both: the open project closes). Any other press, or waiting,
 cancels. If the other device does not answer, only this one switches (logged).
 
@@ -45,5 +45,5 @@ load at the next switch or reboot). Remove: `sh /data/mpc-addins/<id>/uninstall.
   boot; recovery is the autorun stick (SSH) and `uninstall.sh`. Rule kept: never install a build whose preload test
   failed. A reboot still always comes up in stock (the 3.10 drop-in lives in /run).
 - On the Force the addin chains with Skipback and the button remap (same `dlsym` approach); not yet tried together.
-- MENU presses during the gesture also reach MPC (not swallowed); check on the device whether SHIFT + MENU does
+- MENU presses during the gesture also reach MPC (not swallowed); check on the device whether MAIN + MENU does
   anything there that gets in the way.

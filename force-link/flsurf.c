@@ -5,7 +5,7 @@
 //   client -> controller: sysex to the Public port, other messages to Private, paced; F0 7D 46 <text> F7 runs a
 //     flcmd text command (e.g. "qlink 1 Cutoff|1.2kHz|90" draws Q-link OLED 1). dfu_guard() filters as in flnet.
 //   flsurf [-r] [-p port] [-s switch.conf] handshake.syx
-// With -s: hold SHIFT + MENU, then MENU again, switches the Force back to stock (docs/DEVICE_SWITCH.md).
+// With -s: hold MAIN + MENU, then MENU again, switches the Force back to stock (docs/DEVICE_SWITCH.md).
 #include <alsa/asoundlib.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -23,7 +23,7 @@
 #include "combo.h"
 #include "flswitch.h"
 
-#define F_SHIFT 0x31
+#define F_SHIFT 0x03   /* MATRIX = the Force's MAIN (held button; name kept from SHIFT) */
 #define F_MENU 0x02
 static flsw_t sw;
 static int sw_ready, sw_armed, sw_menu_led;   // MENU LED value the script last set, restored on cancel
@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
     downsplit_t ds; memset(&ds, 0, sizeof ds);
     dfu_guard_t g; memset(&g, 0, sizeof g);
     time_t last_ping = 0;
-    if (sw_ready) { combo_init(&sw_combo, F_SHIFT, F_MENU); flsw_listen(&sw); fprintf(stderr, "switch: SHIFT + MENU ready\n"); }
+    if (sw_ready) { combo_init(&sw_combo, F_SHIFT, F_MENU); flsw_listen(&sw); fprintf(stderr, "switch: MAIN + MENU ready\n"); }
     unsigned blink = 0;
     while (!stop) {
         if (sw_ready) {

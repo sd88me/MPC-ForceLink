@@ -1019,12 +1019,12 @@ static void b_start(void)
 		pthread_detach(t);
 }
 
-/* ---- Setup switch: hold SHIFT + MENU, then MENU again (docs/DEVICE_SWITCH.md) ----------------------------------
+/* ---- Setup switch: hold MAIN + MENU, then MENU again (docs/DEVICE_SWITCH.md) ----------------------------------
  * Watches the Live III's own Private port in every setup (stock and B), blinks MENU while armed, tells the Force
  * (switch.conf peer) and runs link.sh detached. Inert without switch.conf. */
 #include "../force-link/combo.h"
 #include "../force-link/flswitch.h"
-#define L3_SHIFT 0x31
+#define L3_SHIFT 0x34   /* MAIN (the held button; name kept from SHIFT) */
 #define L3_MENU 0x7b
 
 static flsw_t sw;
@@ -1099,7 +1099,7 @@ static void sw_start(void)
 	pthread_t t;
 	if (pthread_create(&t, NULL, sw_thread, NULL) == 0)
 		pthread_detach(t);
-	note("switch", "ready: hold SHIFT + MENU, then press MENU");
+	note("switch", "ready: hold MAIN (Force: MATRIX) + MENU, then press MENU");
 }
 
 /* note on/off from the Live III's Private input (running status kept across reads) */

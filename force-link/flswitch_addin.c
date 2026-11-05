@@ -1,4 +1,4 @@
-/* forcelink switch addin for the Force (stock MPC): hold SHIFT + MENU, then MENU again, links the Force to the
+/* forcelink switch addin for the Force (stock MPC): hold MAIN + MENU, then MENU again, links the Force to the
  * Live III (docs/DEVICE_SWITCH.md). Loaded by MPC through LD_PRELOAD like Skipback and the button remap,
  * and chains with them (snd_rawmidi_* resolved with libc's own dlsym, RTLD_NEXT). Inert without switch.conf.
  * Build (armhf): gcc -O2 -fPIC -shared -o forcelink-switch.so flswitch_addin.c combo.c flswitch.c -ldl -lpthread */
@@ -15,7 +15,7 @@
 #include "flswitch.h"
 
 #define CONF "/data/forcelink/switch.conf"
-#define F_SHIFT 0x31
+#define F_SHIFT 0x03   /* MATRIX = the Force's MAIN (held button; name kept from SHIFT) */
 #define F_MENU 0x02
 typedef struct snd_rawmidi snd_rawmidi_t;
 
@@ -104,7 +104,7 @@ static void start(void) {
     pthread_t t;
     if (pthread_create(&t, NULL, ticker, NULL) == 0) pthread_detach(t);
     ready = 1;
-    note("switch", "ready: hold SHIFT + MENU, then press MENU");
+    note("switch", "ready: hold MAIN + MENU, then press MENU");
 }
 
 static void feed(const unsigned char *b, ssize_t n) {

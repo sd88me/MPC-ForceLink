@@ -7,10 +7,10 @@
 #   stock   both devices run their own MPC (the Live III: plain 3.9.1, until its next boot).
 #   forcelink link | stock      switch both devices
 #   forcelink capture   Force stock; Live III on MPC 3.10 with its own controller, controller traffic logged.
-#   forcelink status | install    (install also sets the Live III's home setup to link; SHIFT + MENU on either device
+#   forcelink status | install    (install also sets the Live III's home setup to link; MAIN + MENU on either device
 #                       then toggles only the Force between stock and link)
 #   forcelink addins    install the setup-switch addins on both devices (persistent: MPC loads them at every start)
-#                       and write switch.conf (fresh token, each side's peer). Then on either device: hold SHIFT + MENU
+#                       and write switch.conf (fresh token, each side's peer). Then on either device: hold MAIN + MENU
 #                       until MENU blinks, press MENU: the Force toggles between stock and link (docs/DEVICE_SWITCH.md).
 #   forcelink cap start | cap stop <name>   record the Force controller's USB traffic (usbmon, Force in stock) while
 #                       you use it; stop fetches local/captures/<name>.bin and decodes it (OLEDs, pads, LEDs)

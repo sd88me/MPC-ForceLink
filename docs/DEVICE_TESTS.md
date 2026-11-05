@@ -10,16 +10,16 @@ Report per step: OK, or what you saw. Log reading is done from the dev box (comm
 judging our versions) -> 1 (the switch, needed to reach link) -> 6 (decides how STEP SEQ is rebuilt) -> 2, 3, 4 ->
 5 only if 6 fails (a quick look; skip it if 6 shows events are readable) -> 8, 9.
 
-## 1. Setup switch (SHIFT + MENU)
+## 1. Setup switch (MAIN + MENU)
 | # | Do | Expect |
 |---|---|---|
-| 1.1 | Force: hold SHIFT + MENU ~1.5 s, let go | Force MENU LED blinks |
-| 1.2 | Force: press MENU within 4 s | Force MPC stops, pads/OLEDs come back as the link surface (~10 s). Live III does not restart, project stays open |
-| 1.3 | Force: SHIFT + MENU hold, release, MENU | Force back to its own MPC (stock) |
+| 1.1 | Force: hold MAIN + MENU ~1.5 s, let go | Force MENU LED blinks |
+| 1.2 | Force: press MENU within 8 s | Force MPC stops, pads/OLEDs come back as the link surface (~10 s). Live III does not restart, project stays open |
+| 1.3 | Force: MAIN + MENU hold, release, MENU | Force back to its own MPC (stock) |
 | 1.4 | Live III: same gesture | Live III MENU blinks, then the Force switches to link; Live III does not restart |
 | 1.5 | Live III: same gesture again | Force back to stock |
 | 1.6 | Arm, then press a pad, or wait 5 s | cancelled, MENU LED back to normal, nothing restarts |
-| 1.7 | Note anything SHIFT + MENU does in MPC itself on either device | (MPC sees the presses too) |
+| 1.7 | Note anything MAIN + MENU does in MPC itself on either device | (MPC sees the presses too) |
 [logs: Live III `/tmp/forcespoof.log`, Force `/tmp/forcelink-switch.log` (stock) or `/tmp/forcelink.log` (link)]
 
 ## 2. link basics (regression; Force in link)
