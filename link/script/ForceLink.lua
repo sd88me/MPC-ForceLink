@@ -34,6 +34,14 @@ local PASS = {[0x34] = "select", [0x7A] = "copy", [0x26] = "delete", [0x76] = "a
               [0x00] = "navigate", [0x05] = "master", [0x36] = "inc", [0x37] = "dec", [0x31] = "shift"}
 -- The 8 buttons under the track-select row work like the real Force's: MUTE / SOLO / REC ARM / CLIP STOP pick what they do
 local lowerMode = "clipStop"
+local forceTrack        -- the track the Force has selected (global column); in MATRIX it does not move MPC's selection
+local function selectInMpc(idx)
+    local cm = mpc.clipMatrix
+    if idx and cm and cm.SelectTrack then
+        local ok, err = pcall(cm.SelectTrack, idx)
+        print("ForceLink: clipMatrix.SelectTrack(" .. tostring(idx) .. ") -> " .. tostring(ok) .. " " .. tostring(err))
+    end
+end
 local LOWER = {mute = "mute", solo = "solo", recArm = "arm", clipStop = "clipStop"}
 local heldBtn = {}      -- MPC does not tell scripts which button lights it would show: dim = available, bright while held
 local function pass(note, down)
@@ -46,6 +54,7 @@ local function pass(note, down)
     if f then pcall(f) end
     return true
 end
+local probeBack      -- {tick, track}: SHIFT + CLIP probe restores the current track then
 local mode = "matrix"
 local ticks = 0 -- timer ticks (250 ms)
 local stepSeq, stepTap, stepBright -- the step sequencer object and its functions, found in OnLoad
@@ -676,7 +685,8 @@ local function paintButtons()
         setLed(LAUNCH0 + i, rowState[i] or 0)
         local gi = trackOf(i)
         local cur = mpc.tracks and mpc.tracks.currentTrack and mpc.tracks.currentTrack.Index
-        local sel = cur and cur.value == gi
+        if cur and (forceTrack == nil or mode ~= "matrix") then forceTrack = cur.value end   -- NOTE / STEP: MPC's track
+        local sel = forceTrack == gi
         local lv = colHas[i] or 0
         if lowerMode == "mute" then lv = (colHas[i] and not trk("GetMute", gi)) and 3 or (colHas[i] and 1 or 0)
         elseif lowerMode == "solo" then lv = trk("GetSolo", gi) and 3 or (colHas[i] and 1 or 0)
@@ -732,6 +742,7 @@ local function setMode(newMode)
     if newMode == mode then return end
     if (newMode == "note") ~= (mode == "note") then mapPads(newMode == "note") end
     mode = newMode
+    if mode ~= "matrix" then selectInMpc(forceTrack) end           -- these pages play / edit MPC's current track
     if mode == "step" then ensureClip() end
     snapMode = false
     if mode == "step" and snap.on and snapSupported() then
@@ -1023,6 +1034,25 @@ local function probeScale()
     for i = 1, math.min(#hits, 80) do print("ForceLink: probeScale " .. hits[i]) end
 end
 
+local function probeIndependence()
+    local t = mpc.tracks
+    local cur = t.currentTrack.Index.value
+    local n = t.GetCount()
+    print("ForceLink: INDEP current track " .. tostring(cur) .. " of " .. tostring(n))
+    for _, f in ipairs({"SetCurrentTrack", "SetTrackInputPort", "SetTrackInputChannel", "SetTrackMonitorState"}) do
+        print("ForceLink: INDEP tracks." .. f .. " = " .. type(t[f]))
+    end
+    local ev = mpc.clipMatrix and mpc.clipMatrix.selectedClip and mpc.clipMatrix.selectedClip.events
+    if ev then for k, v in pairs(ev) do print("ForceLink: INDEP selectedClip.events." .. tostring(k) .. " " .. type(v)) end end
+    -- the real test: move MPC's current track, watch the Live III's screen, put it back 3 s later
+    local gc = globalPos(0, 0)
+    local want = (cur == gc) and 1 or 0                       -- a window column other than the current track
+    local ok, err = pcall(aperture.SelectTrack, want)
+    print("ForceLink: INDEP aperture.SelectTrack(" .. want .. ") -> " .. tostring(ok) .. " " .. tostring(err)
+          .. "; current track was " .. tostring(cur) .. ", now " .. tostring(t.currentTrack.Index.value))
+    probeBack = {ticks + 12, cur - gc}
+end
+
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, velocity > 0) end
     if channel == 15 and note >= PAD0 and note < PAD0 + PADS then        -- melodic NOTE: flsurf's copy of a press
@@ -1069,13 +1099,16 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note == BTN.undo then                          -- UNDO; SHIFT + UNDO = redo
             local cm = mpc.commandManager
             if cm then call(shift and cm.Redo or cm.Undo) end
+        elseif note == 0x09 and shift then pcall(probeIndependence)
         elseif note == BTN.tap and shift then                 -- SHIFT + TAP TEMPO: metronome on/off
             local sq = mpc.sequencer
             if sq.SetMetronomeEnabled and sq.MetronomeEnabled then call(sq.SetMetronomeEnabled, not sq.MetronomeEnabled.value) end
         elseif note == BTN.up then move("up") elseif note == BTN.down then move("down")
         elseif note == BTN.left then move("left") elseif note == BTN.right then move("right")
         elseif note >= LAUNCH0 and note < LAUNCH0 + 8 then if aperture then aperture.TriggerRow(note - LAUNCH0) end
-        elseif note >= TRACKSEL0 and note < TRACKSEL0 + 8 then if aperture then aperture.SelectTrack(note - TRACKSEL0) end
+        elseif note >= TRACKSEL0 and note < TRACKSEL0 + 8 then
+            forceTrack = trackOf(note - TRACKSEL0)
+            if mode ~= "matrix" and aperture then aperture.SelectTrack(note - TRACKSEL0) end   -- NOTE / STEP SEQ act on MPC's track
         elseif note >= TRACKARM0 and note < TRACKARM0 + 8 then lowerPress(note - TRACKARM0)
         else pass(note, true)
         end
@@ -1120,6 +1153,11 @@ end
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    if probeBack and ticks >= probeBack[1] then
+        pcall(aperture.SelectTrack, probeBack[2])
+        print("ForceLink: INDEP restored track " .. tostring(mpc.tracks.currentTrack.Index.value))
+        probeBack = nil
+    end
     for i = #readd, 1, -1 do
         if ticks >= readd[i].at then
             if mode == "step" then dev.mappings.script.AddNoteToScript(9, readd[i].note) end
