@@ -97,7 +97,20 @@ local function globalPos(col, row)
 end
 
 local function trackOf(col) local gc = globalPos(col, 0); return gc end
-local function trk(f, ...) local t = mpc.tracks; if t and t[f] then local ok, r = pcall(t[f], ...); if ok then return r end end end
+-- per-track state lives on mpc.tracks.normalTracks[i] (0-based global column): Mute / Solo / RecArm properties and SetMute /
+-- SetSolo / SetRecArm (the same names on mpc.tracks itself fail whatever the arguments)
+local TRKMAP = {GetMute = "Mute", GetSolo = "Solo", GetTrackRecordArmed = "RecArm"}
+local function trk(f, i, v)
+    local t = mpc.tracks and mpc.tracks.normalTracks and mpc.tracks.normalTracks[i]
+    if not t then return nil end
+    local prop = TRKMAP[f]
+    if prop then local p = t[prop]; return p and p.value end
+    local setter = (f == "SetMute" and "SetMute") or (f == "SetSolo" and "SetSolo") or (f == "SetTrackRecordArmed" and "SetRecArm")
+    if setter and t[setter] then
+        local ok, err = pcall(t[setter], v)
+        if not ok then print("ForceLink: " .. setter .. " failed: " .. tostring(err)) end
+    end
+end
 local function lowerPress(col)
     if lowerMode == "clipStop" then if aperture then aperture.StopClipsOnTrack(col) end return end
     local i = trackOf(col)
@@ -105,7 +118,7 @@ local function lowerPress(col)
     elseif lowerMode == "solo" then trk("SetSolo", i, not trk("GetSolo", i))
     elseif lowerMode == "arm" then trk("SetTrackRecordArmed", i, not trk("GetTrackRecordArmed", i)) end
     print(string.format("ForceLink: lower %s col %d track %s: mute=%s solo=%s armed=%s", lowerMode, col, tostring(i),
-          tostring(trk("GetMute", i)), tostring(trk("GetSolo", i)), tostring(trk("GetTrackRecordArmed", i))))
+          tostring((trk("GetMute", i))), tostring((trk("GetSolo", i))), tostring((trk("GetTrackRecordArmed", i)))))
 end
 
 -- clip presence and play state from the global matrix (the per-clip State numbers are not decoded: their enum
@@ -669,6 +682,7 @@ local function stepPadPressed(i, vel)
 end
 
 
+local lastCols
 local function paintButtons()
     -- row launch: dim when the row has clips, bright when one of them plays; stop row: dim when the track has clips
     local rowState, colHas = {}, {}
@@ -681,18 +695,40 @@ local function paintButtons()
             end
         end
     end
+    -- how many tracks exist: the clip matrix's columns (the table mpc.tracks.normalTracks has 128 entries whatever the project holds)
+    local ncols = mpc.clipMatrix and mpc.clipMatrix.GetColumns and call(mpc.clipMatrix.GetColumns)
+    if type(ncols) ~= "number" or ncols <= 0 then ncols = mpc.tracks and mpc.tracks.GetCount and call(mpc.tracks.GetCount) end
+    if type(ncols) ~= "number" then ncols = nil end
+    if ncols ~= lastCols then lastCols = ncols; print("ForceLink: tracks (matrix columns) = " .. tostring(ncols)) end
     for i = 0, 7 do
         setLed(LAUNCH0 + i, rowState[i] or 0)
         local gi = trackOf(i)
         local cur = mpc.tracks and mpc.tracks.currentTrack and mpc.tracks.currentTrack.Index
         if cur and (forceTrack == nil or mode ~= "matrix") then forceTrack = cur.value end   -- NOTE / STEP: MPC's track
         local sel = forceTrack == gi
-        local lv = colHas[i] or 0
-        if lowerMode == "mute" then lv = (colHas[i] and not trk("GetMute", gi)) and 3 or (colHas[i] and 1 or 0)
-        elseif lowerMode == "solo" then lv = trk("GetSolo", gi) and 3 or (colHas[i] and 1 or 0)
-        elseif lowerMode == "arm" then lv = trk("GetTrackRecordArmed", gi) and 3 or (colHas[i] and 1 or 0) end
-        setLed(TRACKARM0 + i, lv)
-        setLed(TRACKSEL0 + i, sel and 3 or (colHas[i] and 1 or 0))
+        local exists = ncols ~= nil and gi < ncols and mpc.tracks and mpc.tracks.normalTracks and mpc.tracks.normalTracks[gi] ~= nil
+        local tr = exists and mpc.tracks.normalTracks[gi]
+        local tcol = tr and tr.Colour and tr.Colour.value
+        local tr_, tg_, tb_ = argb(tcol)
+        if tr_ + tg_ + tb_ == 0 then tr_, tg_, tb_ = 120, 120, 120 end
+        -- the 16 RGB buttons under the pad grid are lit like pads: 72-79 track select, 64-71 the MUTE / SOLO / ARM / STOP row
+        if not exists then
+            setPad(72 + i, 0, 0, 0); setPad(64 + i, 0, 0, 0)
+        else
+            if sel then setPad(72 + i, 255, 255, 255) else setPad(72 + i, math.floor(tr_ * 0.35), math.floor(tg_ * 0.35), math.floor(tb_ * 0.35)) end
+            local r, g, b = 0, 0, 0
+            if lowerMode == "mute" then
+                if trk("GetMute", gi) then r, g, b = 70, 20, 0 else r, g, b = 0, 255, 60 end
+            elseif lowerMode == "solo" then
+                if trk("GetSolo", gi) then r, g, b = 255, 200, 0 else r, g, b = 50, 40, 0 end
+            elseif lowerMode == "arm" then
+                if trk("GetTrackRecordArmed", gi) then r, g, b = 255, 0, 0 else r, g, b = 60, 0, 0 end
+            else
+                local ch = colHas[i]
+                if ch then if ch >= 3 then r, g, b = 255, 120, 0 else r, g, b = 90, 40, 0 end end
+            end
+            setPad(64 + i, r, g, b)
+        end
     end
     -- arrows: lit where the window can move
     if aperture then
@@ -1045,6 +1081,29 @@ local function probeIndependence()
     local ev = mpc.clipMatrix and mpc.clipMatrix.selectedClip and mpc.clipMatrix.selectedClip.events
     if ev then for k, v in pairs(ev) do print("ForceLink: INDEP selectedClip.events." .. tostring(k) .. " " .. type(v)) end end
     -- the real test: move MPC's current track, watch the Live III's screen, put it back 3 s later
+    for i = 0, 3 do
+        local function g(f) local ok, r = pcall(t[f], t, i); return ok and tostring(r) or ("ERR " .. tostring(r)) end
+        print(string.format("ForceLink: INDEP track %d inport=%s inchan=%s monitor=%s armed=%s", i, g("GetTrackInputPort"),
+              g("GetTrackInputChannel"), g("GetTrackMonitorState"), g("GetTrackRecordArmed")))
+    end
+    do local okh, rh = pcall(t.Help, t); print("ForceLink: INDEP Help tracks: " .. tostring(okh) .. " " .. tostring(rh)) end
+    for _, nm in ipairs({"normalTracks", "masterTracks"}) do
+        local o = t[nm]
+        if type(o) == "table" then
+            local names = {}
+            for k, v in pairs(o) do names[#names + 1] = tostring(k) .. "=" .. type(v) end
+            table.sort(names); print("ForceLink: INDEP tracks." .. nm .. " {" .. table.concat(names, ",") .. "}")
+            local first = o[0] or o[1]
+            if type(first) == "table" then
+                local n2 = {}
+                for k, v in pairs(first) do n2[#n2 + 1] = tostring(k) .. "=" .. type(v) end
+                table.sort(n2); print("ForceLink: INDEP tracks." .. nm .. "[first] {" .. table.concat(n2, ",") .. "}")
+            end
+        else print("ForceLink: INDEP tracks." .. nm .. " = " .. type(o)) end
+    end
+    local okc, vc = pcall(t.GetMute, 0); print("ForceLink: INDEP GetMute(0) no self -> " .. tostring(okc) .. " " .. tostring(vc))
+    okc, vc = pcall(t.GetMute, t.currentTrack); print("ForceLink: INDEP GetMute(currentTrack) -> " .. tostring(okc) .. " " .. tostring(vc))
+    for k, v in pairs(mpc) do local n = tostring(k):lower(); if n:find("midi") or n:find("port") then print("ForceLink: INDEP mpc." .. tostring(k) .. " " .. type(v)) end end
     local gc = globalPos(0, 0)
     local want = (cur == gc) and 1 or 0                       -- a window column other than the current track
     local ok, err = pcall(aperture.SelectTrack, want)
@@ -1099,7 +1158,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note == BTN.undo then                          -- UNDO; SHIFT + UNDO = redo
             local cm = mpc.commandManager
             if cm then call(shift and cm.Redo or cm.Undo) end
-        elseif note == 0x09 and shift then pcall(probeIndependence)
+        elseif note == 0x09 and shift then do local okp, ep = pcall(probeIndependence); print("ForceLink: INDEP probe: " .. tostring(okp) .. " " .. tostring(ep)) end
         elseif note == BTN.tap and shift then                 -- SHIFT + TAP TEMPO: metronome on/off
             local sq = mpc.sequencer
             if sq.SetMetronomeEnabled and sq.MetronomeEnabled then call(sq.SetMetronomeEnabled, not sq.MetronomeEnabled.value) end
