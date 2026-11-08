@@ -993,6 +993,14 @@ static void *b_port_thread(void *arg)
 		if (ti >= 0 && (p[ti].revents & (POLLIN | POLLHUP | POLLERR))) {
 			ssize_t n = read(tcp, buf, sizeof buf);
 			if (n <= 0) { close(tcp); tcp = -1; note("B: link lost", NULL); continue; }
+			if (getenv("FORCESPOOF_LAT")) {
+				struct timespec lt; clock_gettime(CLOCK_MONOTONIC, &lt);
+				for (ssize_t i = 0; i + 2 < n; i++)
+					if ((buf[i] & 0xF0) == 0x90 && buf[i + 2]) {
+						char m[48]; snprintf(m, sizeof m, "note %u at %ld ms", buf[i + 1], lt.tv_sec % 100000 * 1000 + lt.tv_nsec / 1000000);
+						note("lat", m); break;
+					}
+			}
 			for (ssize_t i = 0; i < n; i++) {         /* from the Force: to the script */
 				seq_ev_t e;
 				memset(&e, 0, sizeof e);

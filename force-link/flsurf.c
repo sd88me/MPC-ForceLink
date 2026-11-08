@@ -245,6 +245,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "flsurf: controller card %d, handshake sent, port %d\n", card, port);
 
     int ls = socket(AF_INET, SOCK_STREAM, 0), one = 1, cl = -1;
+    int lat = getenv("FLSURF_LAT") != NULL; uint32_t lat_t = 0;
     setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
     struct sockaddr_in sa = {.sin_family = AF_INET, .sin_port = htons(port), .sin_addr.s_addr = htonl(INADDR_ANY)};
     if (bind(ls, (void *)&sa, sizeof sa) || listen(ls, 1)) { perror("bind"); return 1; }
@@ -274,6 +275,11 @@ int main(int argc, char **argv) {
         pfd[np++] = (struct pollfd){ls, POLLIN, 0};
         if (cl >= 0) pfd[np++] = (struct pollfd){cl, POLLIN, 0};
         poll(pfd, np, aud_note >= 0 ? 40 : 200);
+        if (lat && cl >= 0 && now_ms() - lat_t >= 5000) {
+            struct tcp_info ti; socklen_t tl = sizeof ti; lat_t = now_ms();
+            if (getsockopt(cl, IPPROTO_TCP, TCP_INFO, &ti, &tl) == 0)
+                fprintf(stderr, "lat: tcp rtt %u us (var %u), retrans %u, unacked %u\n", ti.tcpi_rtt, ti.tcpi_rttvar, ti.tcpi_total_retrans, ti.tcpi_unacked);
+        }
         if (aud_note >= 0 && cl >= 0) {
             uint8_t m[3] = {aud_on ? 0x89 : 0x99, (uint8_t)aud_note, (uint8_t)(aud_on ? 0 : aud_vel)};
             if (!aud_on) { aud_on = 1; aud_off_ms = (long long)now_ms() + 250; if (write(cl, m, 3) < 0) aud_note = -1; }
@@ -285,6 +291,7 @@ int main(int argc, char **argv) {
                 if (raw) { fprintf(stderr, "ctl%d:", i); for (ssize_t k = 0; k < r; k++) fprintf(stderr, " %02X", b[k]); fputc('\n', stderr); }
                 size_t on = up_filter(&uf[i], b, (size_t)r, o);
                 if (sw_ready) sw_scan(&io, o, on);
+                if (on && cl >= 0 && lat) for (size_t k = 0; k + 2 < on; k++) if ((o[k] & 0xF0) == 0x90 && o[k + 2]) { fprintf(stderr, "lat: note %u at %u ms\n", o[k + 1], now_ms()); break; }
                 if (on && cl >= 0 && write(cl, o, on) < 0) { close(cl); cl = -1; fprintf(stderr, "client gone\n"); }
             }
         }
