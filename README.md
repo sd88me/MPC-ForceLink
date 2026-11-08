@@ -4,7 +4,7 @@ Use an Akai Force as a control surface for an MPC Live III (Gen 2), over the net
 
 - **link:** the Live III stays itself on MPC 3.10; the Force is an extra surface driven by an MPC 3.10 controller script
   (MATRIX clip grid, NOTE, STEP SEQ, Q-links with OLEDs drawn like the real Force; parallel to the Live III's own modes).
-- **stock:** both back to normal. One switch: `link/forcelink link|stock`, or MAIN + MENU on either device.
+- **stock:** both back to normal. One switch: `link/forcelink link|stock`, or MAIN + MENU on the Live III, MATRIX + MENU on the Force.
 - (An earlier Force-identity setup, "version A", is archived in `archive/force-identity/`.)
 
 Status: personal research project, device-tested on one Force (MockbaMod, root) and one Live III (stock MPC 3.10.1.8; earlier work

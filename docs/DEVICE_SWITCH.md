@@ -10,7 +10,7 @@ on either device toggles **only the Force** (stock <-> link); the Live III does 
 dev box turns the link off on the Live III without a reboot.
 
 ## Use
-On either device: **hold MAIN + MENU** about 1.5 s until MENU blinks, let go, **press MENU** within 8 s. Both
+On either device: **hold MAIN + MENU** (on the Force: **MATRIX + MENU**, it has no MAIN button) about 1.5 s until MENU blinks, let go, **press MENU** within 8 s. Both
 devices switch to the other setup (MPC restarts on both: the open project closes). Any other press, or waiting,
 cancels. If the other device does not answer, only this one switches (logged).
 
