@@ -526,3 +526,10 @@ Natural Minor 2, Dorian 6, Hungarian Gypsy 15). Sysex `F0 7D 53 07 <type> <root>
   the 8 buttons under track select follow MUTE / SOLO / REC ARM / CLIP STOP with it. Track index = global matrix column
   (assumed 0-based; each press is logged).
 - The combo is MAIN + MENU (Force: MATRIX + MENU) because 3.10.1 uses SHIFT + MENU; confirm window 8 s.
+
+## 31. Latency and the USB-network experiment (2026-11-08, device)
+- Note feel: `TCP_NODELAY` was already on everywhere. Measured Force to Live III over Wi-Fi: TCP RTT 31-50 ms (variance 10-26 ms), ping avg 24 ms, max 67 ms, no retransmits. The Wi-Fi hop (the devices sit on different subnets, 192.168.1.x / 192.168.2.x) is the main cost; the Lua hop on the Live III was not measured (`FLSURF_LAT=1` on flsurf, `FORCESPOOF_LAT=1` for the shim add logging).
+- The Force's kernel (6.18.26) has DWC2 dual role, configfs, ECM/NCM/RNDIS built in; the Live III (6.18.44) has `cdc_ether` as a module.
+- Wiring: the Force's USB-B jack goes through its internal "Force Hub"; `/sys/devices/platform/usb-mux/state` (`internal`/`external`) chooses whether the hub goes to the Force's own host controller or to the jack. The DWC2 gadget sits on hub port 7.
+- Result: with the mux on `external` and an `ecm.usb0` gadget, the Live III got a USB Ethernet device: RTT 0.24-0.3 ms, max 1.6 ms, no loss. BUT the Force's pad/OLED controller ("Akai Pro Force", a USB device on the same hub) moves to the Live III with the hub, so flsurf loses it: pads, buttons and OLEDs go dead. Reverting the mux (and removing the gadget) restored it. So USB networking over the jack does not work while the Force is a surface.
+- The Live III's address on the USB interface is flushed when MPC restarts (interface unmanaged).
