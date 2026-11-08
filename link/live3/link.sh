@@ -25,6 +25,19 @@ dropins_310() {   # shim drop-in (only when the shim is not installed as an addi
     mv "$D/91-forcespoof.conf.new" "$D/91-forcespoof.conf"; fi
 }
 
+# USB mode (usb.conf): flsurf runs here and drives the Force's controller over the USB cable (the Force's hub is handed
+# over by its link.sh); the shim dials 127.0.0.1. A transient unit retries every 2 s until the controller's sound card
+# ("Force") appears, and starts again if the cable is pulled.
+usb_mode() { [ -f "$K/usb.conf" ]; }
+usb_off() { systemctl stop forcelink-flsurf 2>/dev/null || true; systemctl reset-failed forcelink-flsurf 2>/dev/null || true; }
+usb_on() {
+    usb_off
+    [ -x "$K/flsurf" ] && [ -f "$K/handshake.syx" ] || { echo "USB mode: $K/flsurf or handshake.syx missing (forcelink install)"; return 1; }
+    a=""; [ -f "$K/switch.conf" ] && a="-N -s $K/switch.conf"
+    systemd-run -q --unit=forcelink-flsurf --collect -p Restart=always -p RestartSec=2 \
+        sh -c "exec $K/flsurf $a $K/handshake.syx 2> /tmp/flsurf.log"
+}
+
 restart() {
     : > /tmp/forcespoof.log
     systemctl daemon-reload; systemctl restart acvs; sleep 8
@@ -52,16 +65,19 @@ link|b)
     # b.peer (optional): the address of another surface (e.g. an Ableton Move running movelink) used instead of the Force's;
     # delete the file to go back to the Force. The Live III dials one peer at a time.
     peer=$(cat "$K/b.peer" 2>/dev/null || true)
-    echo n > "$K/dt.conf"; rm -f "$K/live3.conf" "$K/tap.conf"; echo "${peer:-$force}" > "$K/b.conf"
+    echo n > "$K/dt.conf"; rm -f "$K/live3.conf" "$K/tap.conf"
+    if usb_mode; then echo "${peer:-127.0.0.1}" > "$K/b.conf"; usb_on || exit 1; else usb_off; echo "${peer:-$force}" > "$K/b.conf"; fi
     mkdir -p "$DEV"; cp "$K/script/ForceLink.ini" "$K/script/ForceLink.lua" "$DEV/"
     dropins_310
     restart "link" ;;
 capture)
+    usb_off
     if [ -f "$K/net.conf" ]; then mv "$K/net.conf" "$K/net.conf.off"; fi
     echo n > "$K/dt.conf"; rm -f "$K/live3.conf" "$K/b.conf"; rm -rf "$DEV"; touch "$K/tap.conf"; : > /tmp/native.log
     dropins_310
     restart "capture (log: /tmp/native.log)" ;;
 stock|off)
+    usb_off
     rm -f "$D/91-forcespoof.conf" "$D/95-mpc310.conf" "$K/live3.conf" "$K/tap.conf" "$K/b.conf"; rm -rf "$DEV"
     echo n > "$K/dt.conf"; if [ -f "$K/net.conf" ]; then mv "$K/net.conf" "$K/net.conf.off"; fi
     restart "stock"
@@ -73,6 +89,7 @@ status)
     if [ -f "$K/tap.conf" ]; then m=capture; fi
     if [ -f "$K/b.conf" ]; then m=link; fi
     addin_installed && echo "addin: installed (MAIN + MENU switch $( [ -f "$K/switch.conf" ] && echo on || echo off))"
+    echo "usb mode: $(usb_mode && echo on || echo off), flsurf unit: $(systemctl is-active forcelink-flsurf 2>/dev/null || true)"
     echo "mode: $m (home $(cat "$K/home.conf" 2>/dev/null || echo none), Force $(cat "$K/b.conf" 2>/dev/null || echo -))"
     grep -E "link|bridge" /tmp/forcespoof.log 2>/dev/null | tail -n 4 || true ;;
 *) echo "usage: $0 link|stock|capture|status|switch stock|link|toggle"; exit 2 ;;

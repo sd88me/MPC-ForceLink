@@ -533,3 +533,8 @@ Natural Minor 2, Dorian 6, Hungarian Gypsy 15). Sysex `F0 7D 53 07 <type> <root>
 - Wiring: the Force's USB-B jack goes through its internal "Force Hub"; `/sys/devices/platform/usb-mux/state` (`internal`/`external`) chooses whether the hub goes to the Force's own host controller or to the jack. The DWC2 gadget sits on hub port 7.
 - Result: with the mux on `external` and an `ecm.usb0` gadget, the Live III got a USB Ethernet device: RTT 0.24-0.3 ms, max 1.6 ms, no loss. BUT the Force's pad/OLED controller ("Akai Pro Force", a USB device on the same hub) moves to the Live III with the hub, so flsurf loses it: pads, buttons and OLEDs go dead. Reverting the mux (and removing the gadget) restored it. So USB networking over the jack does not work while the Force is a surface.
 - The Live III's address on the USB interface is flushed when MPC restarts (interface unmanaged).
+
+## 32. USB mode (2026-11-08, device)
+- With the mux on `external` the Live III sees the Force's hub: the controller shows up as ALSA card id `Force` (hw:N,0,0/1, same ports as on the Force), so the unchanged `flsurf` (now also built for aarch64, `flsurf.a64`) runs on the Live III. TCP RTT to the shim on localhost: 20-70 us. Playing feels good (user).
+- The Force's own MPC (acvs) must stay stopped: when it starts it sets the mux back to `internal` and takes the controller.
+- `forcelink usb on|off`, `usb.conf` on both devices; Force `link.sh` runs `flsurf -W -s switch.conf` (listener only), Live III `link.sh` runs a transient unit `forcelink-flsurf` (Restart=always, `-N -s`) so it follows the cable. Tested: link -> stock -> link by `forcelink`. MAIN + MENU on the Force in USB mode: to test by hand.

@@ -7,5 +7,5 @@ cd "$(dirname "$0")"
 P=../..
 cp ForceLink.ini.in ForceLink.ini
 python3 $P/tools/sign_script.py "${MPC_BIN:-$P/local/MPC}" ForceLink.lua ForceLink.ini >/dev/null
-cp $P/force-link/flsurf $P/force-link/handshake.syx $P/spoof/forcespoof.so .
+cp $P/force-link/flsurf $P/force-link/flsurf.a64 $P/force-link/handshake.syx $P/spoof/forcespoof.so .
 echo "link build: $(grep -c '^checksum=' ForceLink.ini) checksum line, files: $(ls | tr '\n' ' ')"

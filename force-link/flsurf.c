@@ -7,6 +7,7 @@
 //   flsurf [-r] [-p port] [-s switch.conf] handshake.syx
 // With -s: hold MAIN + MENU, then MENU again, switches the Force back to stock (docs/DEVICE_SWITCH.md).
 #include <alsa/asoundlib.h>
+#include <errno.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -218,14 +219,23 @@ static void sw_scan(io_t *io, const uint8_t *o, size_t n) {
 }
 
 int main(int argc, char **argv) {
-    int a = 1, port = 6770;
+    int a = 1, port = 6770, wonly = 0, nolisten = 0;
     for (; a < argc && argv[a][0] == '-'; a++) {
         if (!strcmp(argv[a], "-r")) raw = 1;
         else if (!strcmp(argv[a], "-p") && a + 1 < argc) port = atoi(argv[++a]);
+        else if (!strcmp(argv[a], "-W")) wonly = 1;       /* switch listener only: no controller (USB mode, Force side) */
+        else if (!strcmp(argv[a], "-N")) nolisten = 1;    /* combo only, do not serve FLSW (the Live III's shim already does) */
         else if (!strcmp(argv[a], "-s") && a + 1 < argc) sw_ready = flsw_load(&sw, argv[++a]) == 0;
-        else { fprintf(stderr, "usage: %s [-r] [-p port] [-s switch.conf] handshake.syx\n", argv[0]); return 2; }
+        else { fprintf(stderr, "usage: %s [-r] [-p port] [-s switch.conf] [-W] [-N] handshake.syx\n", argv[0]); return 2; }
     }
     if (a >= argc) { fprintf(stderr, "need handshake.syx\n"); return 2; }
+    if (wonly) {
+        if (!sw_ready) { fprintf(stderr, "-W needs -s switch.conf\n"); return 2; }
+        signal(SIGINT, on_sig); signal(SIGTERM, on_sig);
+        flsw_listen(&sw); fprintf(stderr, "flsurf: switch listener only (USB mode)\n");
+        while (!stop) sleep(1);
+        return 0;
+    }
     int card = find_card();
     if (card < 0) { fprintf(stderr, "no Force controller card\n"); return 1; }
     char pub[32], priv[32];
@@ -255,7 +265,7 @@ int main(int argc, char **argv) {
     downsplit_t ds; memset(&ds, 0, sizeof ds);
     dfu_guard_t g; memset(&g, 0, sizeof g);
     time_t last_ping = 0;
-    if (sw_ready) { combo_init(&sw_combo, F_SHIFT, F_MENU); flsw_listen(&sw); fprintf(stderr, "switch: MAIN + MENU ready\n"); }
+    if (sw_ready) { combo_init(&sw_combo, F_SHIFT, F_MENU); if (!nolisten) flsw_listen(&sw); fprintf(stderr, "switch: MAIN + MENU ready\n"); }
     unsigned blink = 0;
     while (!stop) {
         if (sw_ready) {
@@ -294,6 +304,7 @@ int main(int argc, char **argv) {
                 if (on && cl >= 0 && lat) for (size_t k = 0; k + 2 < on; k++) if ((o[k] & 0xF0) == 0x90 && o[k + 2]) { fprintf(stderr, "lat: note %u at %u ms\n", o[k + 1], now_ms()); break; }
                 if (on && cl >= 0 && write(cl, o, on) < 0) { close(cl); cl = -1; fprintf(stderr, "client gone\n"); }
             }
+            if (r < 0 && r != -EAGAIN) { fprintf(stderr, "controller gone (%s)\n", snd_strerror((int)r)); stop = 1; }
         }
         if (pfd[c1].revents & POLLIN) {
             int c = accept(ls, NULL, NULL);

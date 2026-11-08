@@ -19,3 +19,7 @@ link/script/handshake.syx
 link/force/flnet
 __pycache__/
 force-link/flfont_big.h
+force-link/flsurf
+force-link/flsurf.a64
+link/script/flsurf
+link/script/flsurf.a64

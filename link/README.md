@@ -41,3 +41,12 @@ Offline tests: `script/test_forcelink.lua` (mock API), `../force-link/flsurf_tes
 
 The earlier Force-identity setup (the Live III's MPC posing as a Force, formerly "version A") is archived in
 `../archive/force-identity/` and git history.
+
+## USB mode (optional; no Wi-Fi in the note path)
+`link/forcelink usb on`, plug a USB-A to USB-B cable from a Live III USB-A port into the **Force's USB-B** port, then
+`link/forcelink link`. The Force's USB hub (with its pad/OLED controller) is handed to the Live III by switching the
+Force's `usb-mux` to `external`; `flsurf` (aarch64) then runs on the Live III against that controller and the shim dials
+127.0.0.1. Round trip 0.24 ms instead of 31-50 ms over Wi-Fi (FINDINGS 31/32). The Force keeps only a switch listener
+(`flsurf -W`) so MAIN + MENU still switches it back to stock (its MPC restarts and the mux returns to `internal`; Wi-Fi is
+needed for that command). `forcelink usb off` goes back to Wi-Fi. Without the cable the Force is dark in USB mode.
+Never leave the mux on `external` with the Force's own MPC running.

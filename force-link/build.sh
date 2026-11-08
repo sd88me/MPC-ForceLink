@@ -17,3 +17,8 @@ docker run --rm --platform linux/arm/v7 -v "$PWD":/build -w /build arm32v7/debia
   LD_PRELOAD=$PWD/forcelink-switch.so /bin/ls / >/dev/null && echo "preload test ok (armhf addin)" &&
   ls -l forcelink flsurf forcelink-switch.so'
 # never install an addin whose preload test failed: the line above must print "ok"
+# flsurf for the Live III (aarch64): USB mode runs it there, against the Force's controller over the cable
+docker run --rm --platform linux/arm64 -v "$PWD":/build -w /build arm64v8/debian:stretch bash -c '
+  printf "deb http://archive.debian.org/debian stretch main\n" > /etc/apt/sources.list
+  apt-get -o Acquire::Check-Valid-Until=false update -qq && apt-get install -y -qq gcc libc6-dev libasound2-dev >/dev/null &&
+  gcc -O2 -Wall -Wextra -o flsurf.a64 flsurf.c floled.c flcmd.c dfu_guard_fn.c combo.c flswitch.c -lasound -lpthread && strip flsurf.a64 && ls -l flsurf.a64'

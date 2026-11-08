@@ -12,6 +12,8 @@
 #   forcelink addins    install the setup-switch addins on both devices (persistent: MPC loads them at every start)
 #                       and write switch.conf (fresh token, each side's peer). Then on either device: hold MAIN + MENU
 #                       until MENU blinks, press MENU: the Force toggles between stock and link (docs/DEVICE_SWITCH.md).
+#   forcelink usb on | off   USB mode: the Live III drives the Force's controller over a USB cable (Live III USB-A to
+#                       Force USB-B) instead of Wi-Fi: round trip 0.3 ms instead of 24 ms. Then forcelink link.
 #   forcelink cap start | cap stop <name>   record the Force controller's USB traffic (usbmon, Force in stock) while
 #                       you use it; stop fetches local/captures/<name>.bin and decodes it (OLEDs, pads, LEDs)
 # Hosts come from hosts.conf next to this script (FORCE=<ip>, LIVE3=<ip>); keep it out of any repo.
@@ -37,8 +39,9 @@ install)
     f 'cd /data/forcelink && mv flsurf.new flsurf && chmod +x flsurf link.sh'
     l "mkdir -p $L3/script"
     scp -q -o BatchMode=yes "$H/script/ForceLink.ini" "$H/script/ForceLink.lua" root@$LIVE3:$L3/script/
-    scp -q -o BatchMode=yes "$H/script/forcespoof.so" "$H/live3/link.sh" "$H/live3/boot.sh" root@$LIVE3:/tmp/
-    l "cd /tmp && mv forcespoof.so link.sh boot.sh $L3/ && chmod +x $L3/link.sh && echo link > $L3/home.conf && \
+    scp -q -o BatchMode=yes "$H/script/forcespoof.so" "$H/live3/link.sh" "$H/live3/boot.sh" "$H/script/handshake.syx" root@$LIVE3:/tmp/
+    scp -q -o BatchMode=yes "$H/script/flsurf.a64" root@$LIVE3:/tmp/flsurf.new
+    l "cd /tmp && mv forcespoof.so link.sh boot.sh handshake.syx $L3/ && mv flsurf.new $L3/flsurf && chmod +x $L3/link.sh $L3/flsurf && echo link > $L3/home.conf && \
        { [ -f $L3/net.conf ] || [ -f $L3/net.conf.off ] || echo $FORCE > $L3/net.conf; }"
     echo "installed (takes effect on the next switch)" ;;
 link|b)  f 'sh /data/forcelink/link.sh link' && l "sh $L3/link.sh link" ;;
@@ -78,6 +81,13 @@ cap)
         python3 "$H/../tools/force_capture_render.py" "$H/../local/captures/$n.bin" "$H/../local/captures/$n" ;;
     *) echo "usage: $0 cap start | cap stop <name>"; exit 2 ;;
     esac ;;
+usb)
+    case "${2:-}" in
+    on)  f 'touch /data/forcelink/usb.conf'; l "touch $L3/usb.conf"
+         echo "USB mode on: plug a USB-A -> USB-B cable from a Live III USB-A port into the Force's USB-B port, then: forcelink link" ;;
+    off) l "rm -f $L3/usb.conf" || true; f 'rm -f /data/forcelink/usb.conf'; echo "USB mode off (Wi-Fi link): forcelink link" ;;
+    *) echo "usage: $0 usb on|off"; exit 2 ;;
+    esac ;;
 status)  echo "== Force"; f 'sh /data/forcelink/link.sh status'; echo "== Live III"; l "sh $L3/link.sh status" ;;
-*) echo "usage: $0 link|stock|capture|status|install|addins|cap start|cap stop <name>"; exit 2 ;;
+*) echo "usage: $0 link|stock|capture|status|install|addins|usb on|usb off|cap start|cap stop <name>"; exit 2 ;;
 esac
