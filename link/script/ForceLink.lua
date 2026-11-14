@@ -183,9 +183,22 @@ local function forcePadToVirtual(col, fromBottom)
     return bank * 16 + col % 4 + 4 * (fromBottom % 4)
 end
 
+-- A drum track, or a plugin MPC gives a drum pad layout (the 16-pad drum layout patch: 6W6, 8W8, CW-78, ...). MPC's own
+-- answer: such a plugin's pads are visible pads (pads.IsPadVisible), a synth plugin in pad perform has none (device
+-- 2026-11-14: 6W6 all 16 true, Felt Bass all 16 false; both Type "Plugin").
 local function isDrumTrack()
     local ok, t = pcall(function() return mpc.tracks.currentTrack.Type.value end)
-    return ok and type(t) == "string" and t:lower():find("drum") ~= nil
+    if not (ok and type(t) == "string") then return false end
+    t = t:lower()
+    if t:find("drum") then return true end
+    if not t:find("plugin") then return false end
+    local pads = mpc.controlSurface and mpc.controlSurface.pads
+    if not (pads and pads.IsPadVisible) then return false end
+    for i = 1, 16 do
+        local okv, v = pcall(pads.IsPadVisible, i)
+        if okv and v == true then return true end
+    end
+    return false
 end
 
 -- Melodic tracks, as the real Force (FINDINGS 21): chromatic rows a 4th apart, keyBase at the bottom-left, roots
@@ -386,8 +399,10 @@ end
 local function legacyTap(bar, step)
     if bar == currentBar() then
         call(stepTap, step)
-    elseif call(mpc.sequencer.IsPlaying) then
-        pendingTaps[#pendingTaps + 1] = {bar, step}              -- done when the playhead reaches that bar
+    elseif call(mpc.sequencer.IsPlaying) then                    -- MPC's step buttons only edit the bar it is on: no
+        if mpc.ui and mpc.ui.ShowTUIFeedback then                -- edit queued to fire later, behind the player's back
+            mpc.ui.ShowTUIFeedback("Force STEP SEQ: playing, only bar " .. (currentBar() + 1) .. " can be edited")
+        end
     else
         call(mpc.sequencer.JumpToPulse, bar * BAR_TICKS)         -- stopped: go to that bar; the tap waits until
         pendingTaps[#pendingTaps + 1] = {bar, step, ticks + 2}   -- MPC's step view is there (two timer ticks)
@@ -421,8 +436,10 @@ local STEP_TICKS, STEP_ORIGIN = 240, 0   -- 16th note at 960 PPQ; STEP_ORIGIN: t
 local DEFAULT_NOTES = {36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51} -- this kit's A01-A16 (device 2026-10-25: pads 1-3 hold 36-38)
 local snap = {on = false, byCount = {}, want = 0, src = nil, hist = {}, view = "", lastReply = -100, maxEnd = 0}
 local fixedLevel                          -- nil: a new step gets the velocity it was tapped with
-local created = {}                        -- "note:tick" -> the encoded string CreateNoteEvent returned (to delete it)
-local encCache, pendingDel = {}, {}       -- MPC's own strings for notes it already held (from the library)
+-- Deletes always use MPC's own encoded string of the note, asked from the library when the step is tapped: the script keeps
+-- no copy of MPC's notes (a remembered string goes stale after an undo, a Live III edit or a track change).
+local pendingDel = {}                     -- "note:tick" -> timer tick the string was asked for
+local DEL_WAIT = 8                        -- ticks (2 s) an unanswered request is kept
 local lastViewSent = -100
 liveScale = nil   -- {type, root, third} from the library (global: HandleMIDISysex is defined before its users)
 
@@ -498,14 +515,12 @@ function ForceLink.HandleMIDISysex(b)
     elseif op == 0x05 then                       -- MPC's own encoded string of a note, asked for to delete it
         local note, tick, len = b:byte(4), get7(b, 5, 5), get7(b, 10, 3)
         local key = note .. ":" .. tick
-        encCache[key] = b:sub(13, 12 + len)
-        print(string.format("ForceLink: encoded note %d at %d: %d chars", note, tick, len))
-        if pendingDel[key] then
+        if pendingDel[key] and snap.src then
             pendingDel[key] = nil
-            local ok, err = pcall(snap.src.DeleteEvent, encCache[key])
-            print(string.format("ForceLink: step - note %d at %d (MPC's string): %s %s", note, tick, tostring(ok), tostring(err)))
-            encCache[key] = nil
+            local ok, err = pcall(snap.src.DeleteEvent, b:sub(13, 12 + len))
+            print(string.format("ForceLink: step - note %d at %d (MPC's string, %d chars): %s %s", note, tick, len, tostring(ok), tostring(err)))
             pollEvents()
+            sendView(true)
         end
     elseif op == 0x07 then                       -- the Live III's pad-perform scale type, root note, third field
         liveScale = {type = b:byte(4), root = b:byte(5), third = b:byte(6)}
@@ -579,16 +594,7 @@ local function toggleStep(st, tapVel)
         local vel = fixedLevel and math.floor(127 * fixedLevel / 16 + 0.5) or math.max(1, tapVel or 100)
         local ok, enc = pcall(ev.CreateNoteEvent, note, tick, vel / 127, STEP_TICKS // 2, 100)
         print(string.format("ForceLink: step %d + note %d at %d vel %d: %s %s", st, note, tick, vel, tostring(ok), tostring(enc and #enc or enc)))
-        if ok and type(enc) == "string" then created[key] = enc end
-    elseif created[key] then
-        local ok, err = pcall(ev.DeleteEvent, created[key])
-        print(string.format("ForceLink: step %d - note %d at %d (ours): %s %s", st, note, tick, tostring(ok), tostring(err)))
-        created[key] = nil
-    elseif encCache[key] then
-        local ok, err = pcall(ev.DeleteEvent, encCache[key])
-        print(string.format("ForceLink: step %d - note %d at %d (MPC's string): %s %s", st, note, tick, tostring(ok), tostring(err)))
-        encCache[key] = nil
-    else                                          -- a note MPC already held: ask the library for its own string
+    elseif not pendingDel[key] then               -- a set step: MPC's own string from the library, deleted when it arrives
         pendingDel[key] = ticks
         sysex(string.char(0x7D, 0x53, 0x06, note) .. put7(tick, 5) .. put7(STEP_TICKS, 2))
         print(string.format("ForceLink: step %d - note %d at %d: asked MPC's string", st, note, tick))
@@ -738,6 +744,38 @@ local function paintButtons()
     end
 end
 
+-- What the Force pages show is tied to MPC's current track, selected clip and sequence. When any of them changes (the Live
+-- III picks another track, a project loads, ...) every cache and every queued edit for the old one is dropped, and the
+-- page is asked for again: nothing from the old context may be painted or written into the new one.
+local lastContext
+local armedClip          -- {col, row}: STEP SEQ entered while stopped; launched by the next PLAY (Force or Live III)
+local launchSelectedClip -- defined below
+local function contextKey()
+    local cm = mpc.clipMatrix
+    local t = mpc.tracks and mpc.tracks.currentTrack
+    local ti = t and t.Index and t.Index.value
+    local seq = mpc.currentSequence and mpc.currentSequence.events
+    return table.concat({tostring(ti), tostring(cm and call(cm.GetSelectedClipColumn)), tostring(cm and call(cm.GetSelectedClipRow)),
+                         tostring(seq), tostring(isDrumTrack())}, "/")
+end
+local function contextChanged()
+    local k = contextKey()
+    if k == lastContext then return false end
+    local first = lastContext == nil
+    lastContext = k
+    if first then return false end
+    print("ForceLink: MPC context changed (" .. k .. "): caches and queued edits dropped")
+    snap.byCount, snap.last, snap.view, snap.hist, snap.maxEnd = {}, nil, "", {}, 0
+    pendingDel, pendingTaps, stepCache, heldPads = {}, {}, {}, {}
+    pairIndex = 0
+    padCache = {}
+    armedClip = nil
+    local pl = mpc.sequencer and mpc.sequencer.Playing
+    if mode == "step" and not (pl and pl.value) then launchSelectedClip() end   -- stopped: arm the newly selected clip instead
+    if mode == "step" and snapMode then sendView(true); pollEvents() end
+    return true
+end
+
 local function paintAll()
     if mode == "note" then return paintNote() end
     if mode == "step" then return paintStep() end
@@ -774,12 +812,46 @@ local function ensureClip()
     if ok ~= false then call(cm.SelectClip, col, row) end
 end
 
+-- Like the Force: entering STEP SEQ while MPC plays launches the clip being edited (MPC's own launch, so it follows the
+-- launch quantise). Stopped, the clip is armed instead: the next PLAY (the Force's or the Live III's) launches it.
+-- A clip already playing or queued is left alone.
+local function clipLaunchable(cm, col, row)
+    return type(col) == "number" and type(row) == "number" and col >= 0 and row >= 0 and call(cm.HasClip, col, row)
+       and not call(cm.ClipIsPlaying, col, row) and not call(cm.ClipIsRecording, col, row) and call(cm.ClipIsStopped, col, row)
+end
+launchSelectedClip = function()
+    local cm = mpc.clipMatrix
+    if not cm or not cm.TriggerClip or not cm.GetSelectedClipColumn then return end
+    local col, row = call(cm.GetSelectedClipColumn), call(cm.GetSelectedClipRow)
+    if not clipLaunchable(cm, col, row) then return end
+    local pl = mpc.sequencer and mpc.sequencer.Playing
+    if not (pl and pl.value) then
+        armedClip = {col, row}
+        print(string.format("ForceLink: STEP SEQ arms clip %d,%d for the next PLAY", col, row))
+        if mpc.ui and mpc.ui.ShowTUIFeedback then mpc.ui.ShowTUIFeedback("Force STEP SEQ: clip armed, starts with PLAY") end
+        return
+    end
+    local ok, err = pcall(cm.TriggerClip, col, row)
+    print(string.format("ForceLink: STEP SEQ launches clip %d,%d: %s %s", col, row, tostring(ok), tostring(err)))
+end
+-- PLAY with a clip armed: launch it (MPC starts the transport with it). Returns true when it did.
+local function launchArmed(why)
+    local a = armedClip
+    armedClip = nil
+    local cm = mpc.clipMatrix
+    if not (a and cm and cm.TriggerClip and mode == "step" and clipLaunchable(cm, a[1], a[2])) then return false end
+    local ok, err = pcall(cm.TriggerClip, a[1], a[2])
+    print(string.format("ForceLink: PLAY (%s) launches armed clip %d,%d: %s %s", why, a[1], a[2], tostring(ok), tostring(err)))
+    return ok
+end
+
 local function setMode(newMode)
     if newMode == mode then return end
     if (newMode == "note") ~= (mode == "note") then mapPads(newMode == "note") end
     mode = newMode
+    armedClip = nil
     if mode ~= "matrix" then selectInMpc(forceTrack) end           -- these pages play / edit MPC's current track
-    if mode == "step" then ensureClip() end
+    if mode == "step" then ensureClip(); launchSelectedClip() end
     snapMode = false
     if mode == "step" and snap.on and snapSupported() then
         snapMode = true
@@ -994,6 +1066,25 @@ local function probeEvents()
     mpc.ui.ShowTUIFeedback("ForceLink: event probe written to the log")
 end
 
+-- Octave on melodic tracks, as on the real Force: SHIFT + lower-row button 7 = down, 8 = up (NOTE and STEP SEQ share it)
+local function octave(up)
+    if isDrumTrack() or (mode ~= "note" and mode ~= "step") then return false end
+    local nb = keyBase + (up and 12 or -12)
+    if nb < 0 or nb + 7 + 35 > 127 then return true end
+    keyBase = nb
+    heldPads = {}
+    if mode == "note" then text(melodicMapCommand()); paintNote()
+    else
+        if snap.on then sendView(true); pollEvents() end
+        padCache = {}
+        paintAll()
+    end
+    if mpc.ui and mpc.ui.ShowTUIFeedback then
+        mpc.ui.ShowTUIFeedback("Force " .. (mode == "note" and "NOTE" or "STEP SEQ") .. ": octave " .. (math.floor(keyBase / 12) - 2))
+    end
+    return true
+end
+
 local function move(dir)
     if mode == "step" then                                   -- STEP SEQ: LEFT / RIGHT page through bar pairs
         if dir == "left" and pairIndex > 0 then pairIndex = pairIndex - 1 end
@@ -1151,7 +1242,9 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
                 qlinkHeld = ok
                 print("ForceLink: qlink Hold " .. tostring(ok) .. " " .. tostring(err))
             end
-        elseif note == BTN.play then mpc.sequencer.TogglePlay()
+        elseif note == BTN.play then
+            local pl = mpc.sequencer.Playing
+            if (pl and pl.value) or not launchArmed("Force") then mpc.sequencer.TogglePlay() end
         elseif note == BTN.rec then mpc.sequencer.Record()
         elseif note == BTN.stop then call(mpc.sequencer.Stop)
         elseif note == BTN.stopAll then if mpc.clipMatrix then call(mpc.clipMatrix.StopAllClips) end
@@ -1168,7 +1261,9 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note >= TRACKSEL0 and note < TRACKSEL0 + 8 then
             forceTrack = trackOf(note - TRACKSEL0)
             if mode ~= "matrix" and aperture then aperture.SelectTrack(note - TRACKSEL0) end   -- NOTE / STEP SEQ act on MPC's track
-        elseif note >= TRACKARM0 and note < TRACKARM0 + 8 then lowerPress(note - TRACKARM0)
+        elseif note >= TRACKARM0 and note < TRACKARM0 + 8 then
+            local c = note - TRACKARM0
+            if not (shift and c >= 6 and octave(c == 7)) then lowerPress(c) end
         else pass(note, true)
         end
     end
@@ -1226,6 +1321,10 @@ function ForceLink.HandleTimer()
     for i = #pendingRelease, 1, -1 do
         call(mpc.controlSurface.pads.Release, pendingRelease[i])
         table.remove(pendingRelease, i)
+    end
+    contextChanged()
+    for key, at in pairs(pendingDel) do                -- the library never answered: drop it, the next tap asks again
+        if ticks - at > DEL_WAIT then pendingDel[key] = nil; print("ForceLink: no string for " .. key .. ", delete dropped") end
     end
     if snap.on then
         if mode == "note" and ticks % 4 == 0 then pollEvents() end       -- each poll lets the library look at the scale
@@ -1393,7 +1492,10 @@ function ForceLink.OnLoad()
     listenGrid()
     listenQLinks()
     led(BTN.play, mpc.sequencer.Playing.value and 3 or 1)
-    mpc.sequencer.Playing:listen(function(p) led(BTN.play, p and 3 or 1) end, deviceName)
+    mpc.sequencer.Playing:listen(function(p)
+        led(BTN.play, p and 3 or 1)
+        if p and armedClip then launchArmed("Live III") end    -- PLAY on the Live III: the armed clip joins in
+    end, deviceName)
     led(BTN.matrix, 3); led(BTN.note, 1); led(BTN.step, 1)
     -- REC lit while recording (bright) or overdubbing; UNDO / STOP / STOP ALL dim
     for _, n in ipairs({"RecordState", "OverdubState"}) do

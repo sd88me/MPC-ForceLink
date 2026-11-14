@@ -174,6 +174,17 @@ mpc.controlSurface.pads.Tap = function(i, v) padHits[#padHits + 1] = i .. "@" ..
 mpc.controlSurface.pads.Release = function() end
 ForceLink.HandleMIDINoteOn(9, 54 + 16 + 2, 127)            -- row 2 col 2: bar B (bar 1) step 3, stopped
 check("STEP: bar B tap while stopped jumps to bar 2 (tap waits for it)", jumps[#jumps] == 3840 and stepTaps[#stepTaps] ~= 3)
+mpc.sequencer.IsPlaying = function() return true end
+mpc.sequencer.PlayheadPosition = function() return 0 end
+local nTaps, nJumps = #stepTaps, #jumps
+calls = {}
+for _ = 1, 8 do ForceLink.HandleTimer() end                 -- the stopped-case tap may fire; then a tap while playing
+nTaps = #stepTaps
+ForceLink.HandleMIDINoteOn(9, 54 + 16 + 5, 127)            -- bar B step 6 while bar A plays
+for _ = 1, 8 do ForceLink.HandleTimer() end
+check("STEP: bar B tap while playing is refused with a message, not queued for later",
+      #stepTaps == nTaps and #jumps == nJumps and has(calls, "TUI Force STEP SEQ: playing, only bar 1 can be edited"))
+mpc.sequencer.IsPlaying = function() return false end
 ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 127)         -- bottom row col 1: MPC pad 2
 check("STEP: pad select plays pad 2 (1-based) at level 16", padHits[#padHits] == "2@127")
 ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 4, 127)         -- bottom row col 4: level 1
@@ -219,7 +230,7 @@ ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 0, 100)              -- select pad 1 
 sent = {}
 for _ = 1, 16 do ForceLink.HandleTimer() end
 check("stepsnap: without hello a view (note 36 = pad A01, start 0, 240 ticks, 32 steps) is sent every 4 s",
-      has(sent, string.char(0x7D, 0x53, 0x01, 37, 0, 0, 0, 0, 0, 1, 112, 32)))
+      has(sent, string.char(0x7D, 0x53, 0x01, 36, 0, 0, 0, 0, 0, 1, 112, 32)))
 ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x03, 1))      -- the library says hello
 ForceLink.HandleMIDINoteOn(0, 0x03, 127)                        -- MATRIX
 ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- and STEP SEQ again: now the real-data page is chosen
@@ -230,24 +241,31 @@ ForceLink.HandleTimer()
 check("stepsnap: step 1 shows its velocity colour (100), step 10 full red (127)", has(sent, padMsg(0, 114, 12, 0)) and has(sent, padMsg(9, 127, 0, 0)))
 check("stepsnap: an empty step is the pad's colour, very dim", has(sent, padMsg(1, 0, 6, 0)))
 ForceLink.HandleMIDINoteOn(9, 54 + 2, 90)                       -- empty step 3, tapped at velocity 90
-check("stepsnap: an empty step gets a note at its tick with the tapped velocity", evcalls[#evcalls] == "create 37 480 0.709 120 100")
+check("stepsnap: an empty step gets a note at its tick with the tapped velocity", evcalls[#evcalls] == "create 36 480 0.709 120 100")
 stepTaps[#stepTaps + 1] = 0
 ForceLink.HandleMIDINoteOn(9, 54 + 0, 100)                      -- step 1 is set, not ours: MPC's own button
 check("stepsnap: a set step of MPC's: the library is asked for MPC's own string (note 36, tick 0, 240 window)",
-      has(sent, string.char(0x7D, 0x53, 0x06, 37, 0, 0, 0, 0, 0, 1, 112)))
-ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x05, 37, 0, 0, 0, 0, 0, 0, 0, 5) .. "HELLO")
+      has(sent, string.char(0x7D, 0x53, 0x06, 36, 0, 0, 0, 0, 0, 1, 112)))
+ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x05, 36, 0, 0, 0, 0, 0, 0, 0, 5) .. "HELLO")
 check("stepsnap: and DeleteEvent gets that string when it arrives", evcalls[#evcalls] == "delete HELLO")
 evN = 6; reply(6, {[0] = 100, [2] = 90, [9] = 127})
 ForceLink.HandleTimer()                                          -- MPC counts 6 events now
-ForceLink.HandleMIDINoteOn(9, 54 + 2, 100)                      -- step 3 is set and ours
-check("stepsnap: a set step we made is deleted by its encoded string", evcalls[#evcalls] == "delete ENC37:480")
 sent = {}
-ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)              -- pad select: bottom row col 1 = pad 2 (note 36)
-check("stepsnap: selecting pad 2 subscribes to note 36", has(sent, string.char(0x7D, 0x53, 0x01, 36, 0, 0, 0, 0, 0, 1, 112, 32)))
+ForceLink.HandleMIDINoteOn(9, 54 + 2, 100)                      -- step 3 is set (we made it): no remembered string either
+check("stepsnap: a set step we made is also deleted by MPC's own string, asked now", has(sent, string.char(0x7D, 0x53, 0x06, 36, 0, 0, 0, 3, 96, 1, 112)))
+ForceLink.HandleMIDINoteOn(9, 54 + 2, 100)                      -- a second tap before the answer
+check("stepsnap: a second tap while the string is on its way asks nothing more", #evcalls == 2)
+ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x05, 36, 0, 0, 0, 3, 96, 0, 0, 7) .. "ENC36:x")
+check("stepsnap: and deletes it when it arrives", evcalls[#evcalls] == "delete ENC36:x")
+ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x05, 36, 0, 0, 0, 3, 96, 0, 0, 7) .. "ENC36:x")
+check("stepsnap: a string nobody asked for deletes nothing", #evcalls == 3)
+sent = {}
+ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)              -- pad select: bottom row col 1 = pad 2 (note 37)
+check("stepsnap: selecting pad 2 subscribes to note 37", has(sent, string.char(0x7D, 0x53, 0x01, 37, 0, 0, 0, 0, 0, 1, 112, 32)))
 ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16 (top-right of the bottom-right pads)
 reply(6, {})
 ForceLink.HandleMIDINoteOn(9, 54 + 5, 20)                       -- step 6, pad 2
-check("stepsnap: a chosen level fixes the entry velocity (16 = full)", evcalls[#evcalls] == "create 36 1200 1.000 120 100")
+check("stepsnap: a chosen level fixes the entry velocity (16 = full)", evcalls[#evcalls] == "create 37 1200 1.000 120 100")
 ForceLink.HandleMIDINoteOn(9, 54 + 4 * 8 + 7, 100)              -- level 16 again: back to the tapped velocity
 ForceLink.HandleTimer()
 presses, releases = {}, {}
@@ -266,23 +284,56 @@ check("stepsnap: a pad hit on the Live III (pad 5) moves the page to its note 40
 liveHit = 5; sent = {}
 ForceLink.HandleTimer()
 check("stepsnap: the same pad again changes nothing (no new view sent)", not has(sent, string.char(0x7D, 0x53, 0x01)))
-ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)              -- back to pad 2 (note 36) on the Force
+ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)              -- back to pad 2 (note 37) on the Force
 liveHit = 2; ForceLink.HandleTimer()
 for _ = 1, 30 do ForceLink.HandleTimer() end                    -- no answers for 7 s: the page stays (no MPC step buttons)
 stepTaps[#stepTaps + 1] = 0
 evcalls = {}
 ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
 check("stepsnap: without answers the real-data page stays: no MPC step button, the tap adds a note", stepTaps[#stepTaps] == 0 and #evcalls == 1)
-mpc.tracks.currentTrack.Type:set("Keygroup")
-evcalls = {}
+-- a plugin with MPC's drum pad layout (16-pad patch) counts as a drum track; a synth plugin does not
+local visible = false
+mpc.controlSurface.pads.IsPadVisible = function(i) return visible end
+mpc.tracks.currentTrack.Type:set("Plugin")
+ForceLink.HandleTimer()
+evcalls = {}; reply(evN, {})
 ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
-check("stepsnap: a drum track turned keygroup mid-session: the page ignores taps (does not write notes)", #evcalls == 0)
+check("drum patch: a synth plugin (no visible pads) gets scale/melodic lanes (pad 2 = 49)", evcalls[1] and evcalls[1]:match("^create 49 ") ~= nil)
+visible = true
+ForceLink.HandleTimer()
+evcalls = {}; reply(evN, {})
+ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
+check("drum patch: a plugin with visible pads (6W6) is a drum track: pad 2 = note 37", evcalls[1] and evcalls[1]:match("^create 37 ") ~= nil)
+visible = false
+mpc.controlSurface.pads.IsPadVisible = nil
+mpc.tracks.currentTrack.Type:set("Keygroup")
+local logged2, realPrint2 = {}, print
+print = function(x) logged2[#logged2 + 1] = tostring(x) end
+sent = {}
+ForceLink.HandleTimer()
+print = realPrint2
+local dropped = false
+for _, l in ipairs(logged2) do if l:find("context changed", 1, true) then dropped = true end end
+check("context: a drum track turned keygroup drops the caches and asks for the new lane's view (pad 2 = note 49)",
+      dropped and has(sent, string.char(0x7D, 0x53, 0x01, 49, 0, 0, 0, 0, 0, 1, 112, 32)))
+evcalls = {}
+reply(evN, {})
+ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
+check("stepsnap: on a keygroup track a tap writes the lane's note (keyBase 48 + pad 2 = 49)", evcalls[1] and evcalls[1]:match("^create 49 720 ") ~= nil)
+local function shiftLower(c) ForceLink.HandleMIDINoteOn(0, 0x31, 127); ForceLink.HandleMIDINoteOn(0, 41 + c, 127)
+                             ForceLink.HandleMIDINoteOff(0, 41 + c, 0); ForceLink.HandleMIDINoteOff(0, 0x31, 0) end
+sent = {}
+shiftLower(7)                                                    -- SHIFT + lower button 8: octave up
+check("stepsnap: SHIFT + lower button 8 moves the keygroup lane an octave up (pad 2 = 61)", has(sent, string.char(0x7D, 0x53, 0x01, 61)))
+shiftLower(6)
+sent = {}
+shiftLower(6)                                                    -- SHIFT + lower button 7 again: 36 + 1 = 37
+check("stepsnap: SHIFT + lower button 7 moves it an octave down (pad 2 = 37)", has(sent, string.char(0x7D, 0x53, 0x01, 37)))
+shiftLower(7)                                                    -- back to 48
 ForceLink.HandleMIDINoteOn(0, 0x03, 127)
 modeReq = 0
-ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- STEP SEQ entered on a keygroup track
-stepTaps[#stepTaps + 1] = 0
-ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
-check("stepsnap: STEP SEQ entered on a keygroup track: the legacy page and MPC's step mode", modeReq > 0 and stepTaps[#stepTaps] == 4)
+ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- STEP SEQ entered on a keygroup track: the real-data page too
+check("stepsnap: STEP SEQ entered on a keygroup track keeps MPC's mode (real-data page)", modeReq == 0)
 ForceLink.HandleMIDINoteOn(0, 0x03, 127)                        -- MATRIX again
 mpc.tracks.currentTrack.Type:set("Drum")
 sent = {}
@@ -290,15 +341,49 @@ modeReq = 0
 ForceLink.HandleMIDINoteOn(0, 0x75, 127)                        -- STEP SEQ with the library there: no mode request
 check("stepsnap: with the library there MPC's mode is left alone", modeReq == 0)
 check("STEP SEQ on an empty clip slot creates a clip there and selects it", createdClips[#createdClips] == "5,5" and selectedClips[#selectedClips] == "5,5")
-check("stepsnap: and the view (pad 2 = note 36) is sent at once", has(sent, string.char(0x7D, 0x53, 0x01, 36)))
+-- entering STEP SEQ launches the selected clip when it is stopped, and leaves a playing one alone
+local triggered = {}
+mpc.clipMatrix.TriggerClip = function(c, r) triggered[#triggered + 1] = c .. "," .. r end
+selCol, selRow = 0, 1; clips[0][1].State:set(0)                  -- the red clip, stopped
+mpc.sequencer.Playing.value = false
+ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
+check("STEP SEQ with MPC stopped launches nothing yet (the clip is armed)", #triggered == 0 and has(calls, "TUI Force STEP SEQ: clip armed, starts with PLAY"))
+local toggles = 0
+mpc.sequencer.TogglePlay = function() toggles = toggles + 1 end
+ForceLink.HandleMIDINoteOn(0, 0x52, 127)                         -- the Force's PLAY
+check("Force PLAY with a clip armed launches that clip (MPC starts with it), no separate TogglePlay", triggered[1] == "0,1" and toggles == 0)
+ForceLink.HandleMIDINoteOn(0, 0x52, 127)
+check("the next PLAY is a normal PLAY again", toggles == 1 and #triggered == 1)
+triggered = {}
+ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)   -- armed again
+mpc.sequencer.Playing:set(true)                                  -- PLAY pressed on the Live III
+check("PLAY on the Live III launches the armed clip", triggered[1] == "0,1")
+mpc.sequencer.Playing:set(false)
+triggered = {}
+ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)   -- armed again
+ForceLink.HandleMIDINoteOn(0, 0x03, 127)                         -- leave STEP SEQ: disarmed
+mpc.sequencer.Playing:set(true); mpc.sequencer.Playing:set(false)
+check("leaving STEP SEQ disarms the clip", #triggered == 0)
+ForceLink.HandleMIDINoteOn(0, 0x75, 127)                         -- back into STEP SEQ, stopped: armed again
+mpc.sequencer.Playing.value = true
+triggered = {}
+ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
+check("STEP SEQ while MPC plays launches the selected clip when it is stopped", triggered[#triggered] == "0,1" and #triggered == 1)
+clips[0][1].State:set(2)                                         -- now playing
+ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
+check("STEP SEQ leaves a playing clip alone (no second launch)", #triggered == 1)
+clips[0][1].State:set(0); selCol, selRow = 5, 5; mpc.sequencer.Playing.value = false
+ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
+mpc.clipMatrix.TriggerClip = nil
+check("stepsnap: and the view (pad 2 = note 37) is sent at once", has(sent, string.char(0x7D, 0x53, 0x01, 37)))
 ForceLink.HandleMIDISysex(string.char(0x7D, 0x53, 0x04, 1, 37, 0, 5, 0, 0, 0, 34, 24))     -- notes: 37 x5; last note ends at 4440
 sent = {}
 ForceLink.HandleMIDINoteOn(0, 0x73, 127)                        -- RIGHT: the next bar pair (notes end in the first)
 check("stepsnap: RIGHT pages to bar pair 2 (ticks 7680) because one more pair can be added to",
-      has(sent, string.char(0x7D, 0x53, 0x01, 36, 0, 0, 0, 60, 0, 1, 112, 32)))
+      has(sent, string.char(0x7D, 0x53, 0x01, 37, 0, 0, 0, 60, 0, 1, 112, 32)))
 sent = {}
 ForceLink.HandleMIDINoteOn(0, 0x73, 127)
-check("stepsnap: but no further", not has(sent, string.char(0x7D, 0x53, 0x01, 36, 0, 0, 0, 120)))
+check("stepsnap: but no further", not has(sent, string.char(0x7D, 0x53, 0x01, 37, 0, 0, 0, 120)))
 ForceLink.HandleMIDINoteOn(0, 0x72, 127)                        -- LEFT: back
 ForceLink.HandleMIDINoteOn(0, 0x03, 127)
 
