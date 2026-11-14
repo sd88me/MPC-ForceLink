@@ -86,6 +86,9 @@ static int note_layout, key_base = 36;   // 0 off, 1 grid (drum), 2 keys, 3 scal
 // channel 15 straight away, at the press velocity, and are copied on channel 16 (the pad's own number) so the script can
 // select the lane; every other pad passes unchanged to the script.
 static int lane_note[16];
+// "notemap lanesel <lane>": the level pads (rows 4-7, cols 4-7; level 1 bottom-left) play lane <lane>'s note at the level's
+// velocity (round(127 * level / 16)) on channel 15, copied on channel 16 like the lane pads
+static int lane_sel;
 // "notemap scale <root note> <12-bit mask of the scale's semitones>": every pad a scale note, the bottom-left pad the
 // root, each row starting 3 scale steps above the one below (FINDINGS 21)
 static int scale_n, scale_iv[12];
@@ -131,6 +134,14 @@ static size_t up_filter(upfilt_t *f, const uint8_t *b, size_t n, uint8_t *out) {
                 out[o++] = (uint8_t)((f->st & 0xF0) | 0x0E); out[o++] = (uint8_t)lane_note[fb * 4 + col]; out[o++] = f->m[1];
                 continue;
             }
+            if (fb <= 3) {                                   // a level pad: the selected lane at the level's velocity
+                if (f->st == 0xA9) continue;                 // its pressure means nothing here
+                int level = fb * 4 + (col - 4) + 1, v = (127 * level + 8) / 16;
+                out[o++] = (uint8_t)((f->st & 0xF0) | 0x0F); out[o++] = d0; out[o++] = f->m[1];
+                out[o++] = (uint8_t)((f->st & 0xF0) | 0x0E); out[o++] = (uint8_t)lane_note[lane_sel];
+                out[o++] = (uint8_t)(f->st == 0x99 && f->m[1] ? v : 0);
+                continue;
+            }
         } else if (note_layout && (f->st == 0x99 || f->st == 0x89 || f->st == 0xA9) && d0 >= 54 && d0 <= 117) {
             int i = d0 - 54, fb = 7 - i / 8, col = i % 8;
             if (note_layout == 2 || note_layout == 3) {
@@ -165,6 +176,11 @@ static void down_msg(io_t *io, const uint8_t *m, size_t n) {
                     for (int k = 0; k < 12; k++) if (mask & (1 << k)) scale_iv[scale_n++] = k;
                     if (scale_n) { note_layout = 3; key_base = rn; }
                 }
+                return;
+            }
+            if (!strncmp(line + 8, "lanesel ", 8)) {
+                int l = atoi(line + 16);
+                if (l >= 0 && l < 16) lane_sel = l;
                 return;
             }
             if (!strncmp(line + 8, "lanes ", 6)) {

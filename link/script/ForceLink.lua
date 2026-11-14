@@ -441,6 +441,7 @@ local fixedLevel                          -- nil: a new step gets the velocity i
 local pendingDel = {}                     -- "note:tick" -> timer tick the string was asked for
 local DEL_WAIT = 8                        -- ticks (2 s) an unanswered request is kept
 local lastViewSent = -100
+laneSelRef = nil      -- sendLaneSel, set below
 applyLanesRef = nil   -- applyLanes, set below (global: used by HandleMIDISysex and contextChanged, defined earlier)
 liveScale = nil   -- {type, root, third} from the library (global: HandleMIDISysex is defined before its users)
 
@@ -546,6 +547,15 @@ local function velColour(v)           -- the real Force's step colour for a velo
     return (67 + 60 * t) * 2, 59 * (1 - t) * 2, 0
 end
 
+-- the dimmest the controller shows with the colour's hue as far as it survives: brightest channel at 1 of 127, channels
+-- under half of it off (setPad takes 8-bit values and halves them)
+local function dimmest(r, g, b)
+    local m = math.max(r, g, b)
+    if m <= 0 then return 2, 2, 2 end
+    local function ch(c) return (c * 2 >= m) and 2 or 0 end
+    return ch(r), ch(g), ch(b)
+end
+
 local function paintStepSnap()
     local row = snapRow() or {}
     local pads = mpc.controlSurface.pads
@@ -556,7 +566,7 @@ local function paintStepSnap()
         local v = row[st] or 0
         local r, g, b
         if v > 0 then r, g, b = velColour(v)
-        else r, g, b = pr * 0.05, pg * 0.05, pb * 0.05 end
+        else r, g, b = dimmest(pr, pg, pb) end
         setPad(st, r, g, b)
     end
     for p = 0, 15 do                                                  -- pads: rows 4-7, cols 0-3
@@ -669,7 +679,12 @@ end
 -- channel-15 note 36 + lane is mapped to pad bank A's pad `lane`, so MPC plays it with its own pad -> note map.
 -- An older flsurf ignores the command and the pads keep coming here (stepPadPressed auditions them as before).
 local LANE_PADS = {}                      -- Force pad index -> lane 0-15 (rows 4-7, cols 0-3; lane 0 bottom-left)
-for lane = 0, 15 do LANE_PADS[(7 - lane // 4) * 8 + lane % 4] = lane end
+local LEVEL_PADS = {}                     -- Force pad index -> level 1-16 (rows 4-7, cols 4-7; level 1 bottom-left)
+for lane = 0, 15 do
+    LANE_PADS[(7 - lane // 4) * 8 + lane % 4] = lane
+    LEVEL_PADS[(7 - lane // 4) * 8 + 4 + lane % 4] = lane + 1
+end
+local laneSelSent
 local lanesOn, lanesDrum, lanesCmd = false, false, nil
 local function clearLanes()
     local m = dev.mappings
@@ -677,9 +692,16 @@ local function clearLanes()
     lanesDrum = false
     if lanesOn then
         text("notemap off")
-        if m.script.RemoveNoteToScript then for i in pairs(LANE_PADS) do m.script.RemoveNoteToScript(15, PAD0 + i) end end
+        if m.script.RemoveNoteToScript then
+            for i in pairs(LANE_PADS) do m.script.RemoveNoteToScript(15, PAD0 + i) end
+            for i in pairs(LEVEL_PADS) do m.script.RemoveNoteToScript(15, PAD0 + i) end
+        end
     end
-    lanesOn, lanesCmd = false, nil
+    lanesOn, lanesCmd, laneSelSent = false, nil, nil
+end
+-- the lane flsurf plays from the level pads (each at its level's velocity)
+local function sendLaneSel()
+    if lanesOn and laneSelSent ~= selectedPad then text("notemap lanesel " .. selectedPad); laneSelSent = selectedPad end
 end
 local function applyLanes()
     if not (mode == "step" and snapMode and snapSupported()) then return clearLanes() end
@@ -695,12 +717,21 @@ local function applyLanes()
     if drum then for l = 0, 15 do m.pads.AddNoteToVirtualPad(14, 36 + l, l) end end
     lanesDrum = drum
     for i in pairs(LANE_PADS) do m.script.AddNoteToScript(15, PAD0 + i) end
+    for i in pairs(LEVEL_PADS) do m.script.AddNoteToScript(15, PAD0 + i) end
     text(cmd)
-    lanesOn, lanesCmd = true, cmd
+    lanesOn, lanesCmd, laneSelSent = true, cmd, nil
     print("ForceLink: STEP SEQ lanes played by flsurf (" .. (drum and "drum pads" or "notes") .. "): " .. cmd)
+    sendLaneSel()
 end
--- flsurf's copy of a lane press: select that lane (flsurf already played it)
+-- flsurf's copy of a lane or level press: flsurf already played it; here the lane is selected / the level toggled
 local function lanePressed(i)
+    local level = LEVEL_PADS[i]
+    if level then
+        fixedLevel = (fixedLevel ~= level) and level or nil
+        selectedLevel = level
+        if isDrumTrack() then ourHit, ourPressTick = selectedPad + 1, ticks; echoHit, echoTick = selectedPad, ticks end
+        return paintStep()
+    end
     local lane = LANE_PADS[i]
     if not lane then return end
     if isDrumTrack() then                                   -- MPC's pad hit: ours, not the Live III's
@@ -712,10 +743,12 @@ local function lanePressed(i)
         pollEvents()
         sendView(true)
     end
+    sendLaneSel()
     paintStep()
 end
 
 applyLanesRef = applyLanes
+laneSelRef = sendLaneSel
 
 local function stepPadPressed(i, vel)
     if not snapMode then return stepPadPressedLegacy(i) end
@@ -731,6 +764,7 @@ local function stepPadPressed(i, vel)
         toggleStep(row * 8 + col, vel)
     elseif col < 4 then
         selectedPad = (7 - row) * 4 + col
+        sendLaneSel()
         playSelected(selectedLevel)
         pollEvents()
         sendView(true)
@@ -1394,6 +1428,7 @@ function ForceLink.HandleTimer()
         if mode == "note" and ticks % 4 == 0 then pollEvents() end       -- each poll lets the library look at the scale
         if mode == "step" and snapMode then
             followLiveHit()
+            if laneSelRef then laneSelRef() end         -- the lane followed a Live III hit: the level pads play it now
             sendView(false)
             pollEvents()
         end

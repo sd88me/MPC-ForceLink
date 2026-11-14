@@ -240,7 +240,7 @@ reply(5, {[0] = 100, [9] = 127})
 sent = {}
 ForceLink.HandleTimer()
 check("stepsnap: step 1 shows its velocity colour (100), step 10 full red (127)", has(sent, padMsg(0, 114, 12, 0)) and has(sent, padMsg(9, 127, 0, 0)))
-check("stepsnap: an empty step is the pad's colour, very dim", has(sent, padMsg(1, 0, 6, 0)))
+check("stepsnap: an empty step is the dimmest light, in the pad's colour (green)", has(sent, padMsg(1, 0, 1, 0)))
 ForceLink.HandleMIDINoteOn(9, 54 + 2, 90)                       -- empty step 3, tapped at velocity 90
 check("stepsnap: an empty step gets a note at its tick with the tapped velocity", evcalls[#evcalls] == "create 36 480 0.709 120 100")
 stepTaps[#stepTaps + 1] = 0
@@ -298,7 +298,7 @@ do
     sent = {}
     ForceLink.HandleMIDINoteOn(0, 0x75, 127)                     -- STEP SEQ again (drum track)
     local laneCmd
-    for i = #sent, 1, -1 do local x = sent[i]; if x:find("notemap lanes", 1, true) then laneCmd = x; break end end
+    for i = #sent, 1, -1 do local x = sent[i]; if x:find("notemap lanes ", 1, true) then laneCmd = x; break end end
     check("lanes: entering the real-data page tells flsurf the 16 lanes (drum: 36 + lane, MPC maps them to pads 1-16)",
           laneCmd ~= nil and laneCmd:find("notemap lanes 36 37 38", 1, true) ~= nil and vpad15[36] == 0 and vpad15[51] == 15)
     check("lanes: the lane pads' copies (ch 16) go to the script", padmap["c16:" .. (54 + 7 * 8)] == true)
@@ -308,6 +308,13 @@ do
     ForceLink.HandleTimer()
     check("lanes: a lane press selects the lane, writes nothing, plays nothing itself", #evcalls == 0 and #presses == prs)
     check("lanes: and the page asks for lane 2's view (pad 3 = note 38)", has(sent, string.char(0x7D, 0x53, 0x01, 38)))
+    check("lanes: the level pads are told to play the selected lane (lanesel 2)", has(sent, string.char(0x7D, 0x46) .. "notemap lanesel 2"))
+    local prs2 = #presses
+    ForceLink.HandleMIDINoteOn(15, 54 + 4 * 8 + 7, 100)          -- flsurf's copy of level 16 (top-right of the level pads)
+    evcalls = {}; reply(evN, {})
+    ForceLink.HandleMIDINoteOn(9, 54 + 5, 20)                    -- a step tap now uses level 16
+    check("lanes: a level copy fixes the entry level without playing anything itself", #presses == prs2 and evcalls[1] and evcalls[1]:find(" 1.000 ", 1, true) ~= nil)
+    ForceLink.HandleMIDINoteOn(15, 54 + 4 * 8 + 7, 100)          -- level 16 again: unfixed
     ForceLink.HandleMIDINoteOn(0, 0x03, 127)
     check("lanes: leaving STEP SEQ hands the pads back (notemap off, drum lane mappings removed)", next(vpad15) == nil)
     ForceLink.HandleMIDINoteOn(0, 0x75, 127)

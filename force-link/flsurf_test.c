@@ -49,11 +49,21 @@ int main(void) {
         printf("%-44s %s\n", "notemap lanes sets layout 4", note_layout == 4 && lane_note[15] == 75 ? "ok" : "FAIL");
         if (note_layout != 4) fails++;
     }
-    // bottom-left (110) = lane 0, bottom row col 3 (113) = lane 3, row 4 col 0 (86) = lane 12; col 4 (114) and top (54) pass
-    const uint8_t ln[] = {0x99, 110, 0x50, 0x99, 113, 0x7F, 0x89, 86, 0x00, 0x99, 114, 0x40, 0x99, 54, 0x40, 0xA9, 110, 0x20};
+    // bottom-left (110) = lane 0, bottom row col 3 (113) = lane 3, row 4 col 0 (86) = lane 12; top (54) passes
+    const uint8_t ln[] = {0x99, 110, 0x50, 0x99, 113, 0x7F, 0x89, 86, 0x00, 0x99, 54, 0x40, 0xA9, 110, 0x20};
     const uint8_t lnw[] = {0x9F, 110, 0x50, 0x9E, 60, 0x50, 0x9F, 113, 0x7F, 0x9E, 63, 0x7F, 0x8F, 86, 0x00, 0x8E, 72, 0x00,
-                           0x99, 114, 0x40, 0x99, 54, 0x40, 0xAE, 60, 0x20};
+                           0x99, 54, 0x40, 0xAE, 60, 0x20};
     expect("lanes: lane pads -> ch 15 notes + ch 16 copies", ln, sizeof ln, lnw, sizeof lnw);
+    {   // level pads play the selected lane (lanesel 2 = note 62) at the level's velocity
+        const char *c = "notemap lanesel 2";
+        uint8_t m[40]; size_t mn = 0;
+        m[mn++] = 0xF0; m[mn++] = 0x7D; m[mn++] = 0x46; memcpy(m + mn, c, strlen(c)); mn += strlen(c); m[mn++] = 0xF7;
+        down_msg(NULL, m, mn);
+    }
+    // level 1 = bottom row col 4 (114): vel 8; level 16 = row 4 col 7 (93): vel 127; note-off 0; pressure dropped
+    const uint8_t lv[] = {0x99, 114, 0x10, 0x99, 93, 0x7F, 0x89, 93, 0x00, 0xA9, 114, 0x30};
+    const uint8_t lvw[] = {0x9F, 114, 0x10, 0x9E, 62, 8, 0x9F, 93, 0x7F, 0x9E, 62, 127, 0x8F, 93, 0x00, 0x8E, 62, 0};
+    expect("lanes: level pads play the selected lane at the level", lv, sizeof lv, lvw, sizeof lvw);
     note_layout = 0;
     puts(fails ? "FAILURES" : "ALL OK");
     return fails != 0;
