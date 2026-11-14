@@ -22,6 +22,13 @@ notes into a clip other than the selected one and to set a track's MIDI input / 
 SEQ can act on the Force's track while the Live III stays on its own (FINDINGS 33 route (b); the mpc-3-ce approach,
 offsets per MPC build).
 
+**Future (parked by the user, 2026-11-14): STEP SEQ real-data page for pad banks B-D (and any kit's note map).** The Lua
+API has no drum program pad -> note map; bank A uses `DEFAULT_NOTES` 36-51 (the user's kit), and programs differ (the Live
+III's own pads send MPC's classic map 37, 36, 42, 82, ...). Plan: the stepsnap library reads the current program's pad
+notes from memory (find the table in the 3.10.1.8 binary, like the scale in FINDINGS 29) and reports them; then `padNote`
+uses them for all 64 pads and lanes play bank B-D pads via `AddNoteToVirtualPad`. Until then banks B-D use the legacy
+page (MPC's own step mode, correct notes, live bar only).
+
 # START HERE: state at the end of the 2026-10-25 session (read this block first; everything below is history)
 
 ## What this is
