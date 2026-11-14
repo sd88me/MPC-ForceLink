@@ -81,7 +81,11 @@ static void send_cb(void *ctx, int cable, const uint8_t *b, size_t n) {
 // bottom-left pad, the usual drum layout start)
 // "notemap keys <base>": melodic layout as the real Force (FINDINGS 21): base + col + 5 * row-from-bottom (rows a 4th
 // apart); each pad press is also copied on channel 16 with the pad's own number, for the script's press colours.
-static int note_layout, key_base = 36;   // 0 off, 1 grid (drum), 2 keys, 3 scale
+static int note_layout, key_base = 36;   // 0 off, 1 grid (drum), 2 keys, 3 scale, 4 lanes
+// "notemap lanes <n0> ... <n15>": STEP SEQ. The 16 lane pads (rows 4-7, cols 0-3; lane 0 bottom-left) play note n<lane> on
+// channel 15 straight away, at the press velocity, and are copied on channel 16 (the pad's own number) so the script can
+// select the lane; every other pad passes unchanged to the script.
+static int lane_note[16];
 // "notemap scale <root note> <12-bit mask of the scale's semitones>": every pad a scale note, the bottom-left pad the
 // root, each row starting 3 scale steps above the one below (FINDINGS 21)
 static int scale_n, scale_iv[12];
@@ -120,7 +124,14 @@ static size_t up_filter(upfilt_t *f, const uint8_t *b, size_t n, uint8_t *out) {
             if (v >= 1 && v <= 63) f->m[1] = 1;
             else if (v >= 65) f->m[1] = 127;
         }
-        if (note_layout && (f->st == 0x99 || f->st == 0x89 || f->st == 0xA9) && d0 >= 54 && d0 <= 117) {
+        if (note_layout == 4 && (f->st == 0x99 || f->st == 0x89 || f->st == 0xA9) && d0 >= 54 && d0 <= 117) {
+            int i = d0 - 54, fb = 7 - i / 8, col = i % 8;
+            if (fb <= 3 && col <= 3) {
+                if (f->st != 0xA9) { out[o++] = (uint8_t)((f->st & 0xF0) | 0x0F); out[o++] = d0; out[o++] = f->m[1]; }
+                out[o++] = (uint8_t)((f->st & 0xF0) | 0x0E); out[o++] = (uint8_t)lane_note[fb * 4 + col]; out[o++] = f->m[1];
+                continue;
+            }
+        } else if (note_layout && (f->st == 0x99 || f->st == 0x89 || f->st == 0xA9) && d0 >= 54 && d0 <= 117) {
             int i = d0 - 54, fb = 7 - i / 8, col = i % 8;
             if (note_layout == 2 || note_layout == 3) {
                 int n = note_layout == 3 ? scale_note(fb, col) : key_base + col + 5 * fb;
@@ -154,6 +165,18 @@ static void down_msg(io_t *io, const uint8_t *m, size_t n) {
                     for (int k = 0; k < 12; k++) if (mask & (1 << k)) scale_iv[scale_n++] = k;
                     if (scale_n) { note_layout = 3; key_base = rn; }
                 }
+                return;
+            }
+            if (!strncmp(line + 8, "lanes ", 6)) {
+                int v[16], k = 0;
+                const char *q = line + 14;
+                char *e;
+                while (k < 16) {
+                    long x = strtol(q, &e, 10);
+                    if (e == q || x < 0 || x > 127) break;
+                    v[k++] = (int)x; q = e;
+                }
+                if (k == 16) { memcpy(lane_note, v, sizeof v); note_layout = 4; }
                 return;
             }
             if (!strncmp(line + 8, "keys", 4)) { note_layout = 2; if (line[12] == ' ') key_base = atoi(line + 13); }

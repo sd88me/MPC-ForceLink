@@ -37,6 +37,23 @@ int main(void) {
     const uint8_t kl[] = {0x99, 110, 0x64, 0x99, 102, 0x7F, 0x89, 61, 0x00};
     const uint8_t klw[] = {0x9F, 110, 0x64, 0x99, 48, 0x64, 0x9F, 102, 0x7F, 0x99, 53, 0x7F, 0x8F, 61, 0x00, 0x89, 90, 0x00};
     expect("keys layout: rows a 4th apart, copies on ch 16", kl, sizeof kl, klw, sizeof klw);
+    // lanes (STEP SEQ): lane pads play their note on ch 15 with the press velocity, copied on ch 16; other pads unchanged
+    {
+        upfilt_t df; memset(&df, 0, sizeof df);
+        char cmd[200] = "notemap lanes";
+        for (int k = 0; k < 16; k++) sprintf(cmd + strlen(cmd), " %d", 60 + k);
+        uint8_t m[220]; size_t mn = 0;
+        m[mn++] = 0xF0; m[mn++] = 0x7D; m[mn++] = 0x46;
+        memcpy(m + mn, cmd, strlen(cmd)); mn += strlen(cmd); m[mn++] = 0xF7;
+        down_msg(NULL, m, mn);
+        printf("%-44s %s\n", "notemap lanes sets layout 4", note_layout == 4 && lane_note[15] == 75 ? "ok" : "FAIL");
+        if (note_layout != 4) fails++;
+    }
+    // bottom-left (110) = lane 0, bottom row col 3 (113) = lane 3, row 4 col 0 (86) = lane 12; col 4 (114) and top (54) pass
+    const uint8_t ln[] = {0x99, 110, 0x50, 0x99, 113, 0x7F, 0x89, 86, 0x00, 0x99, 114, 0x40, 0x99, 54, 0x40, 0xA9, 110, 0x20};
+    const uint8_t lnw[] = {0x9F, 110, 0x50, 0x9E, 60, 0x50, 0x9F, 113, 0x7F, 0x9E, 63, 0x7F, 0x8F, 86, 0x00, 0x8E, 72, 0x00,
+                           0x99, 114, 0x40, 0x99, 54, 0x40, 0xAE, 60, 0x20};
+    expect("lanes: lane pads -> ch 15 notes + ch 16 copies", ln, sizeof ln, lnw, sizeof lnw);
     note_layout = 0;
     puts(fails ? "FAILURES" : "ALL OK");
     return fails != 0;

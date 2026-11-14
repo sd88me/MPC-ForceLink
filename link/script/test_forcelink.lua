@@ -145,8 +145,9 @@ ForceLink.HandleMIDINoteOn(0, 0x71, 127)               -- DOWN: back
 
 -- NOTE on a drum track: the real Force's 2x2 bank layout (A bottom-left, B bottom-right, C top-left, D top-right)
 local vpad = {}
-ForceLink.mappings.pads.AddNoteToVirtualPad = function(ch, n, p) vpad[n] = p end
-ForceLink.mappings.pads.RemoveNoteToVirtualPad = function(ch, n) vpad[n] = nil end
+local vpad15 = {}                                   -- channel 15 (index 14): the STEP SEQ drum lanes
+ForceLink.mappings.pads.AddNoteToVirtualPad = function(ch, n, p) if ch == 14 then vpad15[n] = p else vpad[n] = p end end
+ForceLink.mappings.pads.RemoveNoteToVirtualPad = function(ch, n) if ch == 14 then vpad15[n] = nil else vpad[n] = nil end end
 mpcPads.LightRGBColor = function(i) return i == 1 and "00FF00" or i == 17 and "FF0000" or "000000" end
 mpc.tracks = {currentTrack = {Type = prop("Drum")}}
 sent = {}
@@ -291,6 +292,27 @@ stepTaps[#stepTaps + 1] = 0
 evcalls = {}
 ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
 check("stepsnap: without answers the real-data page stays: no MPC step button, the tap adds a note", stepTaps[#stepTaps] == 0 and #evcalls == 1)
+-- lanes: on the real-data page flsurf plays the 16 lane pads (keygroup here: pitches; drum: virtual pads 0-15)
+do
+    ForceLink.HandleMIDINoteOn(0, 0x03, 127)
+    sent = {}
+    ForceLink.HandleMIDINoteOn(0, 0x75, 127)                     -- STEP SEQ again (drum track)
+    local laneCmd
+    for i = #sent, 1, -1 do local x = sent[i]; if x:find("notemap lanes", 1, true) then laneCmd = x; break end end
+    check("lanes: entering the real-data page tells flsurf the 16 lanes (drum: 36 + lane, MPC maps them to pads 1-16)",
+          laneCmd ~= nil and laneCmd:find("notemap lanes 36 37 38", 1, true) ~= nil and vpad15[36] == 0 and vpad15[51] == 15)
+    check("lanes: the lane pads' copies (ch 16) go to the script", padmap["c16:" .. (54 + 7 * 8)] == true)
+    evcalls = {}; local prs = #presses
+    sent = {}
+    ForceLink.HandleMIDINoteOn(15, 54 + 7 * 8 + 2, 100)          -- flsurf's copy: lane 2 (bottom row, col 2)
+    ForceLink.HandleTimer()
+    check("lanes: a lane press selects the lane, writes nothing, plays nothing itself", #evcalls == 0 and #presses == prs)
+    check("lanes: and the page asks for lane 2's view (pad 3 = note 38)", has(sent, string.char(0x7D, 0x53, 0x01, 38)))
+    ForceLink.HandleMIDINoteOn(0, 0x03, 127)
+    check("lanes: leaving STEP SEQ hands the pads back (notemap off, drum lane mappings removed)", next(vpad15) == nil)
+    ForceLink.HandleMIDINoteOn(0, 0x75, 127)
+    ForceLink.HandleMIDINoteOn(9, 54 + 7 * 8 + 1, 100)           -- back to lane 1 through the old path (an old flsurf)
+end
 -- a plugin with MPC's drum pad layout (16-pad patch) counts as a drum track; a synth plugin does not
 local visible = false
 mpc.controlSurface.pads.IsPadVisible = function(i) return visible end
@@ -304,6 +326,7 @@ ForceLink.HandleTimer()
 evcalls = {}; reply(evN, {})
 ForceLink.HandleMIDINoteOn(9, 54 + 3, 100)
 check("drum patch: a plugin with visible pads (6W6) is a drum track: pad 2 = note 37", evcalls[1] and evcalls[1]:match("^create 37 ") ~= nil)
+check("lanes: on a drum track the lanes go to MPC's pads (ch 15 note 36 + lane -> virtual pad lane)", vpad15[36 + 5] == 5)
 visible = false
 mpc.controlSurface.pads.IsPadVisible = nil
 mpc.tracks.currentTrack.Type:set("Keygroup")

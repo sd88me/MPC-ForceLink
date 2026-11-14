@@ -441,6 +441,7 @@ local fixedLevel                          -- nil: a new step gets the velocity i
 local pendingDel = {}                     -- "note:tick" -> timer tick the string was asked for
 local DEL_WAIT = 8                        -- ticks (2 s) an unanswered request is kept
 local lastViewSent = -100
+applyLanesRef = nil   -- applyLanes, set below (global: used by HandleMIDISysex and contextChanged, defined earlier)
 liveScale = nil   -- {type, root, third} from the library (global: HandleMIDISysex is defined before its users)
 
 local function bankA()
@@ -526,6 +527,7 @@ function ForceLink.HandleMIDISysex(b)
         liveScale = {type = b:byte(4), root = b:byte(5), third = b:byte(6)}
         print(string.format("ForceLink: Live III pad perform: scale type %d, root %d, third field %d", liveScale.type, liveScale.root, liveScale.third))
         if mode == "note" and noteDrum == false then text(melodicMapCommand()); heldPads = {}; paintNote() end
+        if mode == "step" and applyLanesRef then applyLanesRef() end
     elseif op == 0x04 then
         local h = {}
         local nn = b:byte(4) or 0
@@ -661,6 +663,60 @@ local function followLiveHit()
     end
 end
 
+-- Lanes: on the real-data STEP SEQ page flsurf plays the 16 lane pads itself ("notemap lanes", like NOTE mode: no round
+-- trip through this script, the press velocity), and copies each press on channel 16 so the lane gets selected here.
+-- Melodic tracks: the lane's pitch on channel 15 reaches the track as plain MIDI. Drum tracks (and drum-patched plugins):
+-- channel-15 note 36 + lane is mapped to pad bank A's pad `lane`, so MPC plays it with its own pad -> note map.
+-- An older flsurf ignores the command and the pads keep coming here (stepPadPressed auditions them as before).
+local LANE_PADS = {}                      -- Force pad index -> lane 0-15 (rows 4-7, cols 0-3; lane 0 bottom-left)
+for lane = 0, 15 do LANE_PADS[(7 - lane // 4) * 8 + lane % 4] = lane end
+local lanesOn, lanesDrum, lanesCmd = false, false, nil
+local function clearLanes()
+    local m = dev.mappings
+    if lanesDrum and m.pads.RemoveNoteToVirtualPad then for l = 0, 15 do m.pads.RemoveNoteToVirtualPad(14, 36 + l) end end
+    lanesDrum = false
+    if lanesOn then
+        text("notemap off")
+        if m.script.RemoveNoteToScript then for i in pairs(LANE_PADS) do m.script.RemoveNoteToScript(15, PAD0 + i) end end
+    end
+    lanesOn, lanesCmd = false, nil
+end
+local function applyLanes()
+    if not (mode == "step" and snapMode and snapSupported()) then return clearLanes() end
+    local m = dev.mappings
+    local drum = isDrumTrack()
+    local notes = {}
+    for l = 0, 15 do notes[l + 1] = drum and 36 + l or padNote(l) end
+    local cmd = "notemap lanes " .. table.concat(notes, " ")
+    if cmd == lanesCmd and drum == lanesDrum then return end
+    if lanesDrum ~= drum and lanesDrum and m.pads.RemoveNoteToVirtualPad then
+        for l = 0, 15 do m.pads.RemoveNoteToVirtualPad(14, 36 + l) end
+    end
+    if drum then for l = 0, 15 do m.pads.AddNoteToVirtualPad(14, 36 + l, l) end end
+    lanesDrum = drum
+    for i in pairs(LANE_PADS) do m.script.AddNoteToScript(15, PAD0 + i) end
+    text(cmd)
+    lanesOn, lanesCmd = true, cmd
+    print("ForceLink: STEP SEQ lanes played by flsurf (" .. (drum and "drum pads" or "notes") .. "): " .. cmd)
+end
+-- flsurf's copy of a lane press: select that lane (flsurf already played it)
+local function lanePressed(i)
+    local lane = LANE_PADS[i]
+    if not lane then return end
+    if isDrumTrack() then                                   -- MPC's pad hit: ours, not the Live III's
+        ourHit, ourPressTick = lane + 1, ticks
+        echoHit, echoTick = lane, ticks
+    end
+    if lane ~= selectedPad then
+        selectedPad = lane
+        pollEvents()
+        sendView(true)
+    end
+    paintStep()
+end
+
+applyLanesRef = applyLanes
+
 local function stepPadPressed(i, vel)
     if not snapMode then return stepPadPressedLegacy(i) end
     local row, col = math.floor(i / 8), i % 8
@@ -773,6 +829,7 @@ local function contextChanged()
     local pl = mpc.sequencer and mpc.sequencer.Playing
     if mode == "step" and not (pl and pl.value) then launchSelectedClip() end   -- stopped: arm the newly selected clip instead
     if mode == "step" and snapMode then sendView(true); pollEvents() end
+    if mode == "step" and applyLanesRef then applyLanesRef() end
     return true
 end
 
@@ -847,6 +904,7 @@ end
 
 local function setMode(newMode)
     if newMode == mode then return end
+    if mode == "step" then clearLanes() end                       -- before NOTE's own notemap command
     if (newMode == "note") ~= (mode == "note") then mapPads(newMode == "note") end
     mode = newMode
     armedClip = nil
@@ -860,6 +918,7 @@ local function setMode(newMode)
         snap.lastReply = ticks
         sendView(true)
         pollEvents()
+        applyLanes()
     elseif mode == "step" and mpc.engineMode and mpc.engineMode.RequestModeChange then
         -- MPC's step sequencer only takes taps in its own mode: ask for it (name not documented; first that works)
         local cm = mpc.engineMode.CurrentMode
@@ -1076,6 +1135,7 @@ local function octave(up)
     if mode == "note" then text(melodicMapCommand()); paintNote()
     else
         if snap.on then sendView(true); pollEvents() end
+        applyLanes()
         padCache = {}
         paintAll()
     end
@@ -1205,6 +1265,10 @@ end
 
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, velocity > 0) end
+    if channel == 15 and note >= PAD0 and note < PAD0 + PADS and mode == "step" then   -- STEP SEQ lanes: flsurf's copy
+        if velocity > 0 and lanesOn then lanePressed(note - PAD0) end
+        return
+    end
     if channel == 15 and note >= PAD0 and note < PAD0 + PADS then        -- melodic NOTE: flsurf's copy of a press
         heldPads[note - PAD0] = velocity > 0 or nil
         if mode == "note" then paintNote() end
