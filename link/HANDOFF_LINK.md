@@ -1,5 +1,27 @@
 # Handoff: Force link (link setup; formerly "version B", renamed 2026-10-25)
 
+# LATEST: 2026-11-14 session (branch native-step-seq, merged to main; on the devices)
+Learning from zsoltf/mpc-3-ce (CE firmware for Gen1 MPC Live II: native code injected into MPC calls MPC's own clip /
+step functions by offset, so MPC owns the edit, undo and quantise): the script now leaves every edit to MPC and keeps no
+copy of MPC's state. Device-verified by the user:
+- Step deletes always use MPC's own encoded note string, asked from the library at the tap (no remembered strings).
+- `contextChanged()`: a track / clip / sequence / drum-type change drops every cache and queued edit and re-asks the view.
+- Legacy step page: a tap on a bar that is not playing is refused with a TUI message, not queued for later.
+- Drum-patched plugins (mpc-vst-plugins `tools/mpc_patch` 16-pad drum layout: 6W6, 8W8, CW-78, 9W9, TR-MPC, Machinedrum,
+  Lucky Dip) count as drum tracks: a Plugin track whose pads report `pads.IsPadVisible` (synth plugins: none visible).
+- STEP SEQ launches the selected clip while MPC plays; stopped, it arms it and the next PLAY (Force or Live III) launches it.
+- Octave on melodic tracks: SHIFT + lower-row buttons 7 (down) / 8 (up), NOTE and STEP SEQ (NOTE's UP / DOWN still work).
+- flsurf `notemap lanes <16 notes>` / `notemap lanesel <lane>`: on the STEP SEQ page flsurf plays the 16 lane pads and the
+  16 level pads itself (channel 15; drum tracks: note 36 + lane mapped to pad bank A's pads), copies on channel 16 select
+  the lane / toggle the level in the script. No round trip, real press velocity.
+- Empty steps are the dimmest light (`dimmest()`).
+- FINDINGS 33: the Force cannot drive a non-current track from Lua.
+
+**Future (parked by the user, 2026-11-14): the Force on its own track.** Extend the stepsnap library inside MPC to write
+notes into a clip other than the selected one and to set a track's MIDI input / monitoring from memory, so NOTE and STEP
+SEQ can act on the Force's track while the Live III stays on its own (FINDINGS 33 route (b); the mpc-3-ce approach,
+offsets per MPC build).
+
 # START HERE: state at the end of the 2026-10-25 session (read this block first; everything below is history)
 
 ## What this is

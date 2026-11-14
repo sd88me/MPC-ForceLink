@@ -32,8 +32,10 @@ MPC on the device that changes, which closes the open project: save first.
 | `boot.sh`, `home.conf` | Live III `/data/mpc-addins/forcespoof` | run by the boot stick once per boot: brings the Live III up in link |
 
 Script features: MATRIX (8x8 clip window, colours, launch, row launch, arrows), NOTE (drum tracks in the real Force's
-bank layout; other tracks plain notes), STEP SEQ (2 bars of MPC's step sequencer), Q-links on the OLEDs drawn like the
-real Force, KNOBS bank 1-8 / 9-16, PLAY / REC. Status and next steps: `HANDOFF_LINK.md`; device tests:
+bank layout; other tracks plain notes in the Live III's scale), STEP SEQ (32 steps from the clip's real notes; lane and
+level pads played by flsurf; entering it launches the clip while MPC plays, or arms it for the next PLAY), plugins with
+the 16-pad drum layout patch treated as drum tracks, SHIFT + lower buttons 7 / 8 = octave on melodic tracks, Q-links on
+the OLEDs drawn like the real Force, KNOBS bank 1-8 / 9-16, PLAY / REC. Status and next steps: `HANDOFF_LINK.md`; device tests:
 `../docs/DEVICE_TESTS.md`.
 
 Offline tests: `script/test_forcelink.lua` (mock API), `../force-link/flsurf_test.c`, `combo_test.c`,
