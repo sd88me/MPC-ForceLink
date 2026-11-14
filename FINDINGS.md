@@ -538,3 +538,20 @@ Natural Minor 2, Dorian 6, Hungarian Gypsy 15). Sysex `F0 7D 53 07 <type> <root>
 - With the mux on `external` the Live III sees the Force's hub: the controller shows up as ALSA card id `Force` (hw:N,0,0/1, same ports as on the Force), so the unchanged `flsurf` (now also built for aarch64, `flsurf.a64`) runs on the Live III. TCP RTT to the shim on localhost: 20-70 us. Playing feels good (user).
 - The Force's own MPC (acvs) must stay stopped: when it starts it sets the mux back to `internal` and takes the controller.
 - `forcelink usb on|off`, `usb.conf` on both devices; Force `link.sh` runs `flsurf -W -s switch.conf` (listener only), Live III `link.sh` runs a transient unit `forcelink-flsurf` (Restart=always, `-N -s`) so it follows the cable. Tested: link -> stock -> link by `forcelink`. MAIN + MENU on the Force in USB mode: to test by hand.
+
+## 33. Can the Force play / edit a track other than the Live III's current one? (2026-11-14, device, MPC 3.10.1.8)
+Independence probe (SHIFT + CLIP in MATRIX, `probeIndependence` in `ForceLink.lua`), output in the acvs journal (`INDEP` lines):
+- `mpc.tracks` has `SetCurrentTrack`, `SetTrackInputPort`, `SetTrackInputChannel`, `SetTrackMonitorState`, but the matching
+  getters called as `mpc.tracks.Get...(tracks, i)` all fail (`ERR <i>`), like the mute/solo names on `mpc.tracks` itself
+  (FINDINGS 30). `tracks.normalTracks[i]` (the per-track objects that work) has colour, name, mute, solo, rec arm, pan,
+  volume, sends 1-4, type: **no MIDI input port / channel / monitor**. So the script cannot route the Force's notes to a
+  track by its MIDI input: NOTE on a non-current track is not possible from Lua alone.
+- `aperture.SelectTrack(col)` moves MPC's current track (the Live III's screen follows): no separate "Force track" in MPC.
+- The probe's restore (`aperture.SelectTrack` back after 3 s) logged "restored track 2" (index 2 = the track it started
+  on), but the user saw the Live III stay on the probe's track: the restore's effect on the Live III is not confirmed.
+- Note editing: `selectedClip.events` only (CreateNoteEvent / DeleteEvent / SetNote / SetNoteVelocity / MoveEvent /
+  SetNoteRatchet / ... all on the selected clip); there is no per-clip events object in the script API.
+- Routes left: (a) the user sets a track's MIDI input to the "Force Link" port / a channel and monitoring by hand in MPC,
+  and the Force sends that track's notes on that channel (manual, plain notes, no drum virtual-pad mapping); (b) the
+  library inside MPC (stepsnap) writes notes into another clip / sets the track's input fields from memory: the same
+  native route as mpc-3-ce's step editor (offsets per MPC build).
