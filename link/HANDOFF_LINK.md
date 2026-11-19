@@ -29,6 +29,35 @@ notes from memory (find the table in the 3.10.1.8 binary, like the scale in FIND
 uses them for all 64 pads and lanes play bank B-D pads via `AddNoteToVirtualPad`. Until then banks B-D use the legacy
 page (MPC's own step mode, correct notes, live bar only).
 
+**Future (parked by the user, 2026-11-19): fixes learned from community scripts.** Source: the review of
+fuzboxz/mpc-launchpad-pro-mk3 (LPP3), fuzboxz/mpc-launchcontrolxl-mk3 (LCXL3) and kagusta1/KorgNanoKontrolMk1_4_AkaiForce
+(NK), written up in open-mpc/mpc-controllers `docs/findings/COMMUNITY.md` (C-numbers below) and `docs/api-reference.md`.
+Line numbers are `link/script/ForceLink.lua` at 1c5bce9. None of these is done yet.
+1. **Clip state from `clipProperties[c][r].State`, not the global-matrix poll.** `clipStatus()` (~121-133) polls
+   `HasClip/ClipIsPlaying/...` because "the enum order is unknown"; `stateName()` (~78) has a wrong guessed order. The
+   enum is known (C2): 0 NoSlot, 1 Empty, 2 Ready, 3 WillPlay, 4 Playing, 5 WillStopPlaying, 6 WillRecord, 7 Recording,
+   8 WillStopRecording, 9 WillOverdub, 10 Overdubbing, 11 WillStopOverdubbing. `listenGrid()` already listens to `State`,
+   so paint from the value: adds recording (red), queued-to-record and overdub, and drops per-tick polling. Keep the
+   matrix poll only as a fallback when `clipProps` is missing.
+2. **Row-launch LEDs from `aperture.sceneProperties[row].State`** (listenable, covers the whole row, C2) instead of
+   `paintButtons()` scanning 64 slots every tick (~781-790).
+3. **Selected-track highlight with non-mixable tracks.** `paintButtons()` (~802) compares `currentTrack.Index` (global:
+   every track, then master) with `gi` (the `normalTracks` / clip-column index). With a MIDI track in the project the
+   wrong column lights. Learn the offset like LCXL3 (C7): when the current track is a normal one, offset =
+   `Index - position in normalTracks`, debounced (Index and Name update asynchronously). `SetCurrentTrack` also takes the
+   global index.
+4. **Popup guard.** Check `mpc.engineMode.CurrentPopup` before project-scoped native calls (clip launch/arm, step edits,
+   track select): LCXL3 found they can abort MPC while a dialog (e.g. New Project) owns the UI (C6).
+5. **OnLoad once.** `ForceLink.OnLoad()` (~1556) has no guard; NK found OnLoad can run more than once (C9). Guard the
+   registrations and listeners, and reset the flag in OnUnload.
+6. **Track count.** Prefer `mpc.tracks.SizeNormalTracks()` next to `clipMatrix.GetColumns` (~796); `normalTracks` always
+   has 128 slots.
+To try later (present in the 3.10.1.8 dump, untested): `qlinks[i].SetValue` (`SetPosition` only moves the display, C3);
+`ui.popups.PushButton/GetButtons/CloseCurrentPopup` (answer dialogs from the Force); `aperture.trackProperties[i]`
+(State/Name/Type per column); `sequencer.arpeggiator.*`; `currentTrack.currentInstrument` (volume/pan).
+Plan: do 1-6 offline with `test_forcelink.lua`, deploy to the Live III (restarts MPC), hand-test, push, then bump the
+`examples/force-link` submodule in mpc-controllers (it pins 48d2a97; local main is 6 commits ahead, unpushed).
+
 # START HERE: state at the end of the 2026-10-25 session (read this block first; everything below is history)
 
 ## What this is
