@@ -55,7 +55,35 @@ Line numbers are `link/script/ForceLink.lua` at 1c5bce9. None of these is done y
 To try later (present in the 3.10.1.8 dump, untested): `qlinks[i].SetValue` (`SetPosition` only moves the display, C3);
 `ui.popups.PushButton/GetButtons/CloseCurrentPopup` (answer dialogs from the Force); `aperture.trackProperties[i]`
 (State/Name/Type per column); `sequencer.arpeggiator.*`; `currentTrack.currentInstrument` (volume/pan).
-Plan: do 1-6 offline with `test_forcelink.lua`, deploy to the Live III (restarts MPC), hand-test, push, then bump the
+From ryanmgilmore/mpc-control-script-move (MOVE, Live II, MPC 3.10.1; COMMUNITY C12-C17), added 2026-11-22:
+7. **Cut native function calls per tick (do this with 1-2).** Each native *function* call costs ~2.9 ms (one audio
+   block); property reads are free (C12). `clipStatus()` makes up to 4 calls (`HasClip`, `ClipIsPlaying`,
+   `ClipIsRecording`, `ClipIsStopped`) per pad, and `paintButtons()` runs it for all 64 slots: hundreds of ms of the
+   MPC's script thread per tick. Moving to `clipProperties[c][r].State.value` / `sceneProperties[r].State.value` fixes it.
+   Also check `GetClipColour`, `mpc.clipMatrix.GetColumns` and `call(...)` reads in the timer. Add a per-handler timing log
+   with `dev.timer.Now()` like MOVE to measure before and after.
+8. **Pad colours from `pads.virtual[vp].Colour.value`** (0-127, every bank, a property, C14) wherever the script reads
+   pad colours or brightness through `pads.LightRGBColor/LightBrightness` (functions, 2.9 ms each). ForceLink.lua calls `LightRGBColor` at ~267
+   (NOTE pads loop), ~374, ~562 and ~574 (STEP SEQ).
+9. **FINDINGS 33 wall, new lead.** The `mpc.tracks.Get*/Set*` functions take the track *name*, not an index (C13:
+   `GetTrackRecordArmed(name)`, `SetTrackRecordArmed(name, b)` work on device). FINDINGS 33 only tried index forms.
+   Probe `GetTrackInputPort(name)`, `GetTrackInputChannel(name)`, `GetTrackMonitorState(name)`, then the setters, on a
+   scratch project: if they work, the Force could get its own track's MIDI input without the stepsnap/memory route
+   (the "Force on its own track" future above). Track names need not be unique; use the current one or check first.
+10. **STEP SEQ lanes, banks B-D.** Step Seq edits the last pad hit (`pads.LastHitPad()`, 1 = A01).
+   `pads.SetCurrentBank` is ignored inside Step Seq, so set the bank before entering and read `CurrentBank.value` back.
+   MOVE changes lane via Pad Sel (`controlSurface.fKey4`) + a low-velocity `pads.Press` so nothing sounds. May help
+   the parked banks B-D item.
+11. **Small features.** Retrospective record: `controlSurface.shift.Hold()` + `record.Press()` + `shift.Release()`
+   (needs Preferences > Record and Overdub Shift Behaviour = Retrospective Record). Duplicate clip into the next empty
+   slot: `clipMatrix.CopyClip(c, r, c, next)`; duplicate scene: `InsertRows(r+1, 1)` + `CopyRow(r, r+1)`.
+   Automation Read/Write: write `project.GlobalAutomationFilterType.value`.
+12. **Robustness pattern.** MOVE listens *and* polls-and-diffs, so a listener that never fires costs latency only; and
+   it maps nothing until its surface says hello, and unmaps on heartbeat loss. Worth matching once 7 is done (polling
+   is only cheap with properties).
+13. **Access.** MPC 3.10.1's developer mode (Preferences > Enhancements) starts SSH (root, no password by default) on
+   a Live II. Check whether the Live III has the same switch; it would make deploys independent of the current route.
+Plan: do 1-8 offline with `test_forcelink.lua`, deploy to the Live III (restarts MPC), hand-test, push, then bump the
 `examples/force-link` submodule in mpc-controllers (it pins 48d2a97; local main is 6 commits ahead, unpushed).
 
 # START HERE: state at the end of the 2026-10-25 session (read this block first; everything below is history)
