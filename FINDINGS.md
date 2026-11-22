@@ -573,7 +573,15 @@ in `ForceLink.lua` (`BYNAME` journal lines), on the current track `Plugin 001` (
 - **Corrects FINDINGS 33:** a script can set any named track's MIDI input port, channel and monitoring, so route (a)
   can be automated: give the Force's track input = the "Force Link" port + a channel + monitoring on, without the
   user touching MPC's track settings, and the Force can play a track that is not the Live III's current one.
-- Open: the port numbers. 0x7FFFFFFD is probably "All" (a sentinel near INT_MAX, as is output 0x7FFFFFF5); real ports
+- **Port numbers (same day, `probePorts` watcher, `PORTS` journal lines):** with track 1's input set to Force Link by
+  hand, `GetTrackInputPort(name)` = **-809768406** (0xCFBBEA2A); every other track 2147483645 (0x7FFFFFFD, the
+  default, presumably All). Not an index, and not a Java/FNV-1a/djb2/CRC32 hash of "Force Link" or obvious variants:
+  an ID MPC gives the port. **Stable:** the project saved with it, MPC restarted, project reloaded: track 1 still
+  -809768406. The setting is saved in the project. (A first attempt that wasn't saved came back as 0x7FFFFFFD.)
+  So the script can set a track's input to Force Link with `SetTrackInputPort(name, -809768406)`, or read the ID from
+  any track the user set once. Untested: whether the ID is the same on another unit / after a firmware update, and
+  what a script-set value does to routing (does the Force then play that track).
+- Earlier open questions: 0x7FFFFFFD is probably "All" (a sentinel near INT_MAX, as is output 0x7FFFFFF5); real ports
   are small indices, but which index is "Force Link" is unknown. Next: set a track's input to Force Link by hand in
   MPC, read `GetTrackInputPort(name)`, and check the index stays the same across restarts. Also map the monitor values
   (2 seen; 0 set) to MPC's monitor menu, and whether channel 0 = All or channel 1. Track names need not be unique.

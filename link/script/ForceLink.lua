@@ -1351,6 +1351,27 @@ local function probeByName()
     return true
 end
 
+-- FINDINGS 34 follow-up: which GetTrackInputPort number is which port. Every 2 s, logs each track's input
+-- port / channel / monitor state (by name) when the set changes. Read-only: one call per value, up to 16 tracks.
+local PROBE_PORTS = false -- done: FINDINGS 34 (Force Link = -809768406, stable)
+local portsLast
+local function probePorts()
+    local t = mpc.tracks
+    local nt = t.normalTracks
+    local n = math.min(tonumber(nt and nt.Count and nt.Count.value) or 0, 16)
+    local parts = {}
+    for i = 0, n - 1 do
+        local name = nt[i] and nt[i].Name and nt[i].Name.value
+        if type(name) == "string" and name ~= "" then
+            local function g(f) local ok, v = pcall(t[f], name); return ok and tostring(v) or "ERR" end
+            parts[#parts + 1] = string.format("%d '%s' in=%s ch=%s mon=%s", i, name, g("GetTrackInputPort"),
+                g("GetTrackInputChannel"), g("GetTrackMonitorState"))
+        end
+    end
+    local line = table.concat(parts, " | ")
+    if line ~= portsLast then portsLast = line; print("ForceLink: PORTS " .. line) end
+end
+
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, velocity > 0) end
     if channel == 15 and note >= PAD0 and note < PAD0 + PADS and mode == "step" then   -- STEP SEQ lanes: flsurf's copy
@@ -1459,6 +1480,7 @@ end
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    if PROBE_PORTS and ticks % 8 == 0 then pcall(probePorts) end
     if PROBE_BY_NAME and not probeByNameDone and ticks >= 12 then
         local okp, ep = pcall(probeByName)
         if not okp then probeByNameDone = true; print("ForceLink: BYNAME probe failed: " .. tostring(ep)) end
