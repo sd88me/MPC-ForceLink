@@ -555,3 +555,25 @@ Independence probe (SHIFT + CLIP in MATRIX, `probeIndependence` in `ForceLink.lu
   and the Force sends that track's notes on that channel (manual, plain notes, no drum virtual-pad mapping); (b) the
   library inside MPC (stepsnap) writes notes into another clip / sets the track's input fields from memory: the same
   native route as mpc-3-ce's step editor (offsets per MPC build).
+
+## 34. The `mpc.tracks` functions take the track NAME: per-track MIDI input is reachable from Lua (2026-11-22, device, Live III MPC 3.10.1.12)
+Lead from ryanmgilmore's Move script (mpc-control-script-move: `GetTrackRecordArmed(name)` on a Live II). `probeByName`
+in `ForceLink.lua` (`BYNAME` journal lines), on the current track `Plugin 001` (index 0, a plugin track), MPC 3.10.1.12
+(build f088e9c8427; the Live III had updated from 3.10.1.8):
+- Called as `mpc.tracks.F(name, ...)` (dot, no self) every function tried works; `F(tracks, name)` fails (the error
+  text is the name). FINDINGS 30 / 33 only tried index forms, so "they error in every form" was the argument type.
+- Read: `GetTrackRecordArmed` true, `GetSolo` false, `GetMute` false, `GetTrackInputPort` 2147483645 (0x7FFFFFFD),
+  `GetTrackInputChannel` 0, `GetTrackMonitorState` 2, `GetTrackOutputPort` 2147483637 (0x7FFFFFF5),
+  `GetTrackOutputChannel` 16, `GetTrackVolume` 0.708 (-3 dB), `GetTrackPan` 0.5, `GetTrackColour` 16711935,
+  `IsTrackMidiTriggered` true, `IsTrackMixable` true.
+- Write (each set, read back, then restored, all confirmed by read-back): `SetTrackRecordArmed(name, false)`,
+  `SetSolo(name, true)`, `SetMute(name, true)`, `SetTrackInputPort(name, 0)`, `SetTrackInputChannel(name, 1)`,
+  `SetTrackMonitorState(name, 0)`. Setters return nothing.
+- `mpc.tracks.Help(f)` returns nil.
+- **Corrects FINDINGS 33:** a script can set any named track's MIDI input port, channel and monitoring, so route (a)
+  can be automated: give the Force's track input = the "Force Link" port + a channel + monitoring on, without the
+  user touching MPC's track settings, and the Force can play a track that is not the Live III's current one.
+- Open: the port numbers. 0x7FFFFFFD is probably "All" (a sentinel near INT_MAX, as is output 0x7FFFFFF5); real ports
+  are small indices, but which index is "Force Link" is unknown. Next: set a track's input to Force Link by hand in
+  MPC, read `GetTrackInputPort(name)`, and check the index stays the same across restarts. Also map the monitor values
+  (2 seen; 0 set) to MPC's monitor menu, and whether channel 0 = All or channel 1. Track names need not be unique.

@@ -1297,6 +1297,60 @@ local function probeIndependence()
     probeBack = {ticks + 12, cur - gc}
 end
 
+-- FINDINGS 33 follow-up (2026-11-22): do the mpc.tracks Get*/Set* functions work with the track NAME?
+-- (ryanmgilmore's Move script: GetTrackRecordArmed(name) / SetTrackRecordArmed(name, b) work on a Live II.)
+-- Runs once, on the current track, a few seconds after load. Reads first; each setter is first called with the value
+-- just read (a no-op write), then, for numbers and booleans only, with a different value, read back and put back.
+local PROBE_BY_NAME = false -- done: FINDINGS 34 (2026-11-22)
+local probeByNameDone = false
+local function probeByName()
+    local t = mpc.tracks
+    local name = t.currentTrack and t.currentTrack.Name and t.currentTrack.Name.value
+    if type(name) ~= "string" or name == "" then return false end
+    probeByNameDone = true
+    local function show(v) return type(v) .. ":" .. tostring(v) end
+    local function try(f, ...)
+        if type(t[f]) ~= "function" then return false, "missing" end
+        local ok, r = pcall(t[f], ...)
+        return ok, r
+    end
+    print("ForceLink: BYNAME track '" .. name .. "' index " .. tostring(t.currentTrack.Index.value))
+    local pairsToTest = {
+        {"GetTrackRecordArmed", "SetTrackRecordArmed"}, {"GetSolo", "SetSolo"}, {"GetMute", "SetMute"},
+        {"GetTrackInputPort", "SetTrackInputPort"}, {"GetTrackInputChannel", "SetTrackInputChannel"},
+        {"GetTrackMonitorState", "SetTrackMonitorState"}, {"GetTrackOutputPort"}, {"GetTrackOutputChannel"},
+        {"GetTrackVolume"}, {"GetTrackPan"}, {"GetTrackColour"}, {"IsTrackMidiTriggered"}, {"IsTrackMixable"},
+    }
+    for _, pr in ipairs(pairsToTest) do
+        local g, st = pr[1], pr[2]
+        local ok, v = try(g, name)
+        local ok2, v2 = try(g, t, name)
+        print(string.format("ForceLink: BYNAME %s(name) -> %s %s | (self,name) -> %s %s", g, tostring(ok), show(v),
+              tostring(ok2), show(v2)))
+        if st and ok then
+            local okw, ew = try(st, name, v)
+            local _, back = try(g, name)
+            print(string.format("ForceLink: BYNAME %s(name, same) -> %s %s; read back %s", st, tostring(okw), show(ew), show(back)))
+            local other
+            if type(v) == "boolean" then other = not v elseif type(v) == "number" then other = (v == 0) and 1 or 0 end
+            if okw and other ~= nil then
+                local okc, ec = try(st, name, other)
+                local _, b2 = try(g, name)
+                local okr = try(st, name, v)
+                local _, b3 = try(g, name)
+                print(string.format("ForceLink: BYNAME %s(name, %s) -> %s %s; read %s; restored %s -> %s", st, show(other),
+                      tostring(okc), show(ec), show(b2), tostring(okr), show(b3)))
+            end
+        end
+    end
+    -- the Help strings may give the argument lists
+    for _, f in ipairs({"GetTrackInputPort", "SetTrackInputPort", "SetTrackMonitorState"}) do
+        local h = type(t.Help) == "function" and select(2, pcall(t.Help, f))
+        print("ForceLink: BYNAME Help(" .. f .. ") = " .. tostring(h))
+    end
+    return true
+end
+
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
     if channel == 0 and note >= 0x53 and note <= 0x5A then return knobTouch(note - 0x53, velocity > 0) end
     if channel == 15 and note >= PAD0 and note < PAD0 + PADS and mode == "step" then   -- STEP SEQ lanes: flsurf's copy
@@ -1405,6 +1459,10 @@ end
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    if PROBE_BY_NAME and not probeByNameDone and ticks >= 12 then
+        local okp, ep = pcall(probeByName)
+        if not okp then probeByNameDone = true; print("ForceLink: BYNAME probe failed: " .. tostring(ep)) end
+    end
     if probeBack and ticks >= probeBack[1] then
         pcall(aperture.SelectTrack, probeBack[2])
         print("ForceLink: INDEP restored track " .. tostring(mpc.tracks.currentTrack.Index.value))

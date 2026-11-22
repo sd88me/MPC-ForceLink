@@ -65,7 +65,8 @@ From ryanmgilmore/mpc-control-script-move (MOVE, Live II, MPC 3.10.1; COMMUNITY 
 8. **Pad colours from `pads.virtual[vp].Colour.value`** (0-127, every bank, a property, C14) wherever the script reads
    pad colours or brightness through `pads.LightRGBColor/LightBrightness` (functions, 2.9 ms each). ForceLink.lua calls `LightRGBColor` at ~267
    (NOTE pads loop), ~374, ~562 and ~574 (STEP SEQ).
-9. **FINDINGS 33 wall, new lead.** The `mpc.tracks.Get*/Set*` functions take the track *name*, not an index (C13:
+9. **DONE 2026-11-22: it works (FINDINGS 34).** Next: find the Force Link port number, then automate route (a). Was:
+   **FINDINGS 33 wall, new lead.** The `mpc.tracks.Get*/Set*` functions take the track *name*, not an index (C13:
    `GetTrackRecordArmed(name)`, `SetTrackRecordArmed(name, b)` work on device). FINDINGS 33 only tried index forms.
    Probe `GetTrackInputPort(name)`, `GetTrackInputChannel(name)`, `GetTrackMonitorState(name)`, then the setters, on a
    scratch project: if they work, the Force could get its own track's MIDI input without the stepsnap/memory route
