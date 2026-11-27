@@ -12,9 +12,9 @@ end
 local clips = {}
 for c = 0, 7 do
     clips[c] = {}
-    for r = 0, 7 do clips[c][r] = {Colour = prop(0), State = prop(0)} end
+    for r = 0, 7 do clips[c][r] = {Colour = prop(0), State = prop(1)} end   -- 1 = Empty
 end
-clips[0][1] = {Colour = prop(0xFFFF0000), State = prop(0)}        -- red clip, stopped
+clips[0][1] = {Colour = prop(0xFFFF0000), State = prop(2)}        -- red clip, Ready (stopped)
 
 local aperture = {}
 for _, f in ipairs({"SetColumns", "SetRows", "SetLabel", "Show", "Hide", "TriggerClip", "TriggerRow",
@@ -67,9 +67,9 @@ mpc = {
     clipMatrix = {
         HasClip = function(c, r) return colour(c, r) ~= 0 end,
         GetClipColour = colour,
-        ClipIsPlaying = function(c, r) return clips[c][r].State.value == 2 end,
+        ClipIsPlaying = function(c, r) return clips[c][r].State.value == 4 end,
         ClipIsRecording = function() return false end,
-        ClipIsStopped = function(c, r) return clips[c][r].State.value == 0 end,
+        ClipIsStopped = function(c, r) return clips[c][r].State.value == 2 end,
         DeleteClip = function(c, r) calls[#calls + 1] = "DeleteClip " .. c .. "," .. r end,
         CreateClip = function(c, r) createdClips[#createdClips + 1] = c .. "," .. r; return true end,
         CopyClip = function(a, b, c, d) calls[#calls + 1] = "CopyClip " .. a .. "," .. b .. "," .. c .. "," .. d end,
@@ -128,7 +128,7 @@ mpc.sequencer.Playing:set(true)
 check("PLAY LED lit while playing", has(sent, "CC 82 3"))
 
 sent = {}
-clips[0][1].State:set(2)                               -- Playing
+clips[0][1].State:set(4)                               -- Playing
 check("playing clip bright red", has(sent, padMsg(8, 102, 0, 0)))
 qlinks[4].ValueString:set("50%")                       -- bank 1, knob 3 (Q-link 4 * (3 - 2) + 0)
 check("Q-link value change redraws OLED 3 (name view)", has(sent, string.char(0x7D, 0x46) .. "qname 3 Q4|32|0"))
@@ -397,7 +397,7 @@ check("STEP SEQ on an empty clip slot creates a clip there and selects it", crea
 -- entering STEP SEQ launches the selected clip when it is stopped, and leaves a playing one alone
 local triggered = {}
 mpc.clipMatrix.TriggerClip = function(c, r) triggered[#triggered + 1] = c .. "," .. r end
-selCol, selRow = 0, 1; clips[0][1].State:set(0)                  -- the red clip, stopped
+selCol, selRow = 0, 1; clips[0][1].State:set(2)                  -- the red clip, stopped
 mpc.sequencer.Playing.value = false
 ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
 check("STEP SEQ with MPC stopped launches nothing yet (the clip is armed)", #triggered == 0 and has(calls, "TUI Force STEP SEQ: clip armed, starts with PLAY"))
@@ -422,10 +422,10 @@ mpc.sequencer.Playing.value = true
 triggered = {}
 ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
 check("STEP SEQ while MPC plays launches the selected clip when it is stopped", triggered[#triggered] == "0,1" and #triggered == 1)
-clips[0][1].State:set(2)                                         -- now playing
+clips[0][1].State:set(4)                                         -- now playing
 ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
 check("STEP SEQ leaves a playing clip alone (no second launch)", #triggered == 1)
-clips[0][1].State:set(0); selCol, selRow = 5, 5; mpc.sequencer.Playing.value = false
+clips[0][1].State:set(2); selCol, selRow = 5, 5; mpc.sequencer.Playing.value = false
 ForceLink.HandleMIDINoteOn(0, 0x03, 127); ForceLink.HandleMIDINoteOn(0, 0x75, 127)
 mpc.clipMatrix.TriggerClip = nil
 check("stepsnap: and the view (pad 2 = note 37) is sent at once", has(sent, string.char(0x7D, 0x53, 0x01, 37)))
@@ -470,6 +470,33 @@ print = realPrint
 if not okProbe then print("probe error: " .. tostring(probeErr)) end
 check("SHIFT + STEP: GetState event tree is logged", okProbe and has(logged, "state.seqEvents.Events.Event 0.NoteEvent.Note=number 36")
       and has(logged, "state.seqEvents.NumEvents=number 1"))
+
+-- clip State drives the pads and the row LEDs (no HasClip / ClipIs* calls), recording is red, and a State enum that
+-- disagrees with HasClip falls back to the matrix functions
+sent = {}
+local polled = 0
+local realHas = mpc.clipMatrix.HasClip
+clips[0][1].Colour:set(0xFF00FF00)                      -- a green clip
+clips[0][1].State:set(4)
+check("playing green clip is green", has(sent, padMsg(8, 0, 102, 0)))
+sent = {}
+clips[0][1].State:set(7)                                -- Recording: red whatever the clip colour
+check("recording clip is red, not its own colour", has(sent, padMsg(8, 102, 0, 0)))
+clips[0][1].Colour:set(0xFFFF0000)
+clips[0][1].State:set(2)
+sent = {}
+mpc.clipMatrix.HasClip = function(c, r) polled = polled + 1; return realHas(c, r) end
+ForceLink.HandleTimer(); ForceLink.HandleTimer(); ForceLink.HandleTimer(); ForceLink.HandleTimer()
+check("a timer tick paints from State: at most one HasClip (the consistency check)", polled <= 1)
+local logged3, realPrint3 = {}, print
+print = function(x) logged3[#logged3 + 1] = tostring(x) end
+for c = 0, 7 do for r = 0, 7 do clips[c][r].Colour.value = 0xFF00FF00; clips[c][r].State.value = 1 end end   -- State says Empty, HasClip says yes
+mpc.clipMatrix.HasClip = realHas
+for _ = 1, 16 do ForceLink.HandleTimer() end
+print = realPrint3
+local fellBack = false
+for _, l in ipairs(logged3) do if l:find("back to the matrix functions", 1, true) then fellBack = true end end
+check("State disagrees with HasClip three times: falls back to the matrix", fellBack)
 
 print(fails == 0 and "ALL OK" or "FAILURES")
 os.exit(fails == 0 and 0 or 1)

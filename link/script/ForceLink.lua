@@ -80,12 +80,11 @@ local function argb(c)
     return math.floor(c / 65536) % 256, math.floor(c / 256) % 256, c % 256
 end
 
+-- the per-clip State enum (COMMUNITY C2; device 3.10.1.12: a stopped clip with content reads 2)
+local STATE_NAMES = {[0] = "NoSlot", "Empty", "Ready", "WillPlay", "Playing", "WillStopPlaying", "WillRecord", "Recording",
+                     "WillStopRecording", "WillOverdub", "Overdubbing", "WillStopOverdubbing"}
 local function stateName(s)
-    if type(s) == "number" then
-        local names = {"Stopped", "WillPlay", "Playing", "WillStopPlaying", "WillRecord", "WillStopRecording",
-                       "WillOverdub", "WillStopOverdubbing"}
-        return names[s + 1] or tostring(s)
-    end
+    if type(s) == "number" then return STATE_NAMES[s] or tostring(s) end
     return tostring(s)
 end
 
@@ -126,9 +125,23 @@ local function lowerPress(col)
           tostring((trk("GetMute", i))), tostring((trk("GetSolo", i))), tostring((trk("GetTrackRecordArmed", i)))))
 end
 
--- clip presence and play state from the global matrix (the per-clip State numbers are not decoded: their enum
--- order is unknown); 0 = no clip, 1 = stopped, 2 = playing/recording, 3 = queued (neither)
+-- clip presence and play state: 0 = no clip, 1 = stopped, 2 = playing, 3 = queued, 4 = recording.
+-- Read from the clip's State property (free; the grid listens to it), not the global matrix's HasClip / ClipIs* functions
+-- (each native function call costs about 2.9 ms, COMMUNITY C12). The matrix functions stay as the fallback when the property
+-- is missing or checkStateOne() has seen it disagree with HasClip.
+local STATUS_OF = {[2] = 1, [3] = 3, [4] = 2, [5] = 2, [6] = 3, [7] = 4, [8] = 4, [9] = 3, [10] = 2, [11] = 2}
+local useState = true
+local function stateOf(col, row)
+    local p = clipProps and clipProps[col] and clipProps[col][row]
+    local st = p and p.State and p.State.value
+    return type(st) == "number" and st or nil
+end
 local function clipStatus(col, row)
+    if useState then
+        local st = stateOf(col, row)
+        if st == 0 or st == 1 then return 0 end
+        if st and STATUS_OF[st] then return STATUS_OF[st] end
+    end
     local m = mpc.clipMatrix
     if not (m and m.HasClip) then return 0 end
     local gc, gr = globalPos(col, row)
@@ -146,7 +159,8 @@ local function paintPad(col, row)
     if status > 0 then
         local p = clipProps and clipProps[col] and clipProps[col][row]
         local cr, cg, cb = argb(p and p.Colour.value or mpc.clipMatrix.GetClipColour(gc, gr))
-        local k = status == 2 and FULL or status == 1 and DIM or (blinkOn and FULL or DIM)
+        if status == 4 then cr, cg, cb = 255, 0, 0 end                      -- recording: red
+        local k = (status == 2 or status == 4) and FULL or status == 1 and DIM or (blinkOn and FULL or DIM)
         r, g, b = cr * k, cg * k, cb * k
     end
     r, g, b = math.floor(r / 2), math.floor(g / 2), math.floor(b / 2) -- 8 bit -> the controller's 7 bit
@@ -174,6 +188,18 @@ local function hexRGB(s) -- "FF0000", "#FF0000" or "{FF0000}": the first six hex
     s = tostring(s or ""):match("%x%x%x%x%x%x")
     if not s then return 0, 0, 0 end
     return tonumber(s:sub(1, 2), 16), tonumber(s:sub(3, 4), 16), tonumber(s:sub(5, 6), 16)
+end
+
+-- A pad's colour as r, g, b: the virtual pad's Colour property (0-based, every bank, free: COMMUNITY C14) first, the
+-- pads.LightRGBColor function (1-based, ~2.9 ms a call: C12) only when the property is not there.
+local function padRGB(vp0)
+    local pads = mpc.controlSurface and mpc.controlSurface.pads
+    local okp, c = pcall(function() return pads.virtual[vp0].Colour.value end)
+    if okp and type(c) == "number" then return argb(c) end
+    if not (pads and pads.LightRGBColor) then return 0, 0, 0 end
+    local okl, hex = pcall(pads.LightRGBColor, vp0 + 1)
+    if okl and hex and tostring(hex) ~= "" then return hexRGB(hex) end
+    return 0, 0, 0
 end
 
 -- NOTE mode: flsurf renumbers the pads 36 + 8 * row-from-bottom + col.
@@ -268,9 +294,7 @@ local function paintNote()
     if drum then
         for row = 0, 7 do
             for col = 0, 7 do
-                local r, g, b = 0, 0, 0
-                local ok, hex = pcall(pads.LightRGBColor, forcePadToVirtual(col, 7 - row) + 1) -- virtual pads 1-64
-                if ok and hex and tostring(hex) ~= "" then r, g, b = hexRGB(hex) end
+                local r, g, b = padRGB(forcePadToVirtual(col, 7 - row))
                 setPad(row * 8 + col, r, g, b)
             end
         end
@@ -376,7 +400,7 @@ local function paintStepLegacy()
     local pads = mpc.controlSurface.pads
     for p = 0, 15 do -- pad select: rows 4-7, cols 0-3, pad 1 bottom-left
         local row, col = 7 - math.floor(p / 4), p % 4
-        local r, g, b = hexRGB(call(pads.LightRGBColor, padIndex1(p)))
+        local r, g, b = padRGB(p)
         if r + g + b == 0 and pads[p] then r, g, b = argb(pads[p].Colour.value) end
         if r + g + b == 0 then r, g, b = 160, 160, 160 end   -- unlit in this mode: dim white
         local k = (p == selectedPad) and 1 or 0.25
@@ -564,7 +588,7 @@ end
 local function paintStepSnap()
     local row = snapRow() or {}
     local pads = mpc.controlSurface.pads
-    local pr, pg, pb = hexRGB(call(pads.LightRGBColor, padIndex1(selectedPad)))
+    local pr, pg, pb = padRGB(selectedPad)
     if pr + pg + pb == 0 and pads[selectedPad] then pr, pg, pb = argb(pads[selectedPad].Colour.value) end
     if pr + pg + pb == 0 then pr, pg, pb = 160, 160, 160 end
     for st = 0, 31 do
@@ -576,7 +600,7 @@ local function paintStepSnap()
     end
     for p = 0, 15 do                                                  -- pads: rows 4-7, cols 0-3
         local prow, pcol = 7 - math.floor(p / 4), p % 4
-        local r, g, b = hexRGB(call(pads.LightRGBColor, padIndex1(p)))
+        local r, g, b = padRGB(p)
         if r + g + b == 0 and pads[p] then r, g, b = argb(pads[p].Colour.value) end
         if r + g + b == 0 then r, g, b = 160, 160, 160 end
         if p == selectedPad then r, g, b = 254, 254, 254 else r, g, b = r * 0.25, g * 0.25, b * 0.25 end
@@ -791,8 +815,9 @@ local function paintButtons()
         for col = 0, 7 do
             local s = clipStatus(col, row)
             if s > 0 then
-                rowState[row] = math.max(rowState[row] or 1, s == 2 and 3 or 1)
-                colHas[col] = math.max(colHas[col] or 1, s == 2 and 3 or 1)
+                local live = (s == 2 or s == 4) and 3 or 1
+                rowState[row] = math.max(rowState[row] or 1, live)
+                colHas[col] = math.max(colHas[col] or 1, live)
             end
         end
     end
@@ -1425,9 +1450,34 @@ local function recLed()      -- REC bright while recording or overdubbing; UNDO 
     setLed(BTN.tap, ((me and me.value) or heldBtn[BTN.tap]) and 3 or 1)
 end
 
+-- Once a second, one clip slot: its State property must agree with the matrix's HasClip. Three disagreements in a row = the
+-- enum differs on this build: fall back to the matrix functions (and say so in the log).
+local verifyIdx, verifyBad = 0, 0
+local function checkStateOne()
+    if not useState or not clipProps then return end
+    local col, row = verifyIdx % 8, verifyIdx // 8
+    verifyIdx = (verifyIdx + 1) % 64
+    local st, m = stateOf(col, row), mpc.clipMatrix
+    if not (st and m and m.HasClip) then return end
+    local gc, gr = globalPos(col, row)
+    local ok, has = pcall(m.HasClip, gc, gr)
+    if not ok or type(has) ~= "boolean" then return end
+    local says = st >= 2 and st <= 11
+    if says == has then verifyBad = 0; return end
+    verifyBad = verifyBad + 1
+    print(string.format("ForceLink: clip %d,%d State=%s (%s) but HasClip=%s (%d)", col, row, tostring(st), stateName(st), tostring(has), verifyBad))
+    if verifyBad >= 3 then
+        useState = false
+        print("ForceLink: the clip State enum does not match HasClip on this build: back to the matrix functions")
+        padCache = {}
+        paintAll()
+    end
+end
+
 function ForceLink.HandleTimer()
     blinkOn = not blinkOn
     ticks = ticks + 1
+    if ticks % 4 == 0 then pcall(checkStateOne) end
     if probeBack and ticks >= probeBack[1] then
         pcall(aperture.SelectTrack, probeBack[2])
         print("ForceLink: INDEP restored track " .. tostring(mpc.tracks.currentTrack.Index.value))

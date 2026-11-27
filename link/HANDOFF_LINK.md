@@ -33,13 +33,13 @@ page (MPC's own step mode, correct notes, live bar only).
 fuzboxz/mpc-launchpad-pro-mk3 (LPP3), fuzboxz/mpc-launchcontrolxl-mk3 (LCXL3) and kagusta1/KorgNanoKontrolMk1_4_AkaiForce
 (NK), written up in open-mpc/mpc-controllers `docs/findings/COMMUNITY.md` (C-numbers below) and `docs/api-reference.md`.
 Line numbers are `link/script/ForceLink.lua` at 1c5bce9. None of these is done yet.
-1. **Clip state from `clipProperties[c][r].State`, not the global-matrix poll.** `clipStatus()` (~121-133) polls
+1. **BUILT 2026-11-28 (not yet on the Live III): clip state from `clipProperties[c][r].State`, not the global-matrix poll.** `clipStatus()` reads the State property (0/1 = no clip, 2 = stopped, 3/6/9 = queued, 4/5/10/11 = playing, 7/8 = recording, shown red); a once-a-second check of one slot against `HasClip` falls back to the matrix functions after 3 disagreements. Was: `clipStatus()` (~121-133) polls
    `HasClip/ClipIsPlaying/...` because "the enum order is unknown"; `stateName()` (~78) has a wrong guessed order. The
    enum is known (C2): 0 NoSlot, 1 Empty, 2 Ready, 3 WillPlay, 4 Playing, 5 WillStopPlaying, 6 WillRecord, 7 Recording,
    8 WillStopRecording, 9 WillOverdub, 10 Overdubbing, 11 WillStopOverdubbing. `listenGrid()` already listens to `State`,
    so paint from the value: adds recording (red), queued-to-record and overdub, and drops per-tick polling. Keep the
    matrix poll only as a fallback when `clipProps` is missing.
-2. **Row-launch LEDs from `aperture.sceneProperties[row].State`** (listenable, covers the whole row, C2) instead of
+2. **BUILT 2026-11-28 (no scene properties needed):** the row and stop LEDs now come from the same State reads (free), so the 64-slot scan no longer makes native calls. Was: **Row-launch LEDs from `aperture.sceneProperties[row].State`** (listenable, covers the whole row, C2) instead of
    `paintButtons()` scanning 64 slots every tick (~781-790).
 3. **Selected-track highlight with non-mixable tracks.** `paintButtons()` (~802) compares `currentTrack.Index` (global:
    every track, then master) with `gi` (the `normalTracks` / clip-column index). With a MIDI track in the project the
@@ -56,13 +56,13 @@ To try later (present in the 3.10.1.8 dump, untested): `qlinks[i].SetValue` (`Se
 `ui.popups.PushButton/GetButtons/CloseCurrentPopup` (answer dialogs from the Force); `aperture.trackProperties[i]`
 (State/Name/Type per column); `sequencer.arpeggiator.*`; `currentTrack.currentInstrument` (volume/pan).
 From ryanmgilmore/mpc-control-script-move (MOVE, Live II, MPC 3.10.1; COMMUNITY C12-C17), added 2026-11-22:
-7. **Cut native function calls per tick (do this with 1-2).** Each native *function* call costs ~2.9 ms (one audio
+7. **BUILT 2026-11-28 with 1-2 and 8 (no timing log added yet):** **Cut native function calls per tick (do this with 1-2).** Each native *function* call costs ~2.9 ms (one audio
    block); property reads are free (C12). `clipStatus()` makes up to 4 calls (`HasClip`, `ClipIsPlaying`,
    `ClipIsRecording`, `ClipIsStopped`) per pad, and `paintButtons()` runs it for all 64 slots: hundreds of ms of the
    MPC's script thread per tick. Moving to `clipProperties[c][r].State.value` / `sceneProperties[r].State.value` fixes it.
    Also check `GetClipColour`, `mpc.clipMatrix.GetColumns` and `call(...)` reads in the timer. Add a per-handler timing log
    with `dev.timer.Now()` like MOVE to measure before and after.
-8. **Pad colours from `pads.virtual[vp].Colour.value`** (0-127, every bank, a property, C14) wherever the script reads
+8. **BUILT 2026-11-28 (`padRGB`, falls back to `LightRGBColor`; check the colours on the device):** **Pad colours from `pads.virtual[vp].Colour.value`** (0-127, every bank, a property, C14) wherever the script reads
    pad colours or brightness through `pads.LightRGBColor/LightBrightness` (functions, 2.9 ms each). ForceLink.lua calls `LightRGBColor` at ~267
    (NOTE pads loop), ~374, ~562 and ~574 (STEP SEQ).
 9. **DONE 2026-11-22: it works (FINDINGS 34).** Force Link's input-port ID is **-809768406**, stable across a restart and saved in the project. Next:
