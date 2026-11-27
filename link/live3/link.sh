@@ -1,5 +1,5 @@
 #!/bin/sh
-# Live III side of the Force link: link.sh link | stock | capture | status | switch <mode>
+# Live III side of the Force link: link.sh link | stock | capture | status | boot | switch <mode>
 #   link     the Live III's own MPC (3.10.1.x, no overlay); a "Force Link" MIDI port (shim, b.conf) connects
 #            to flsurf on the Force, and the signed ForceLink controller script (script/) drives it as an extra surface.
 #   stock    no Force Link port or controller script; the addin drop-in 90-mpc-addins.conf is left alone.
@@ -47,6 +47,9 @@ restart() {
 DEV="/nvme/MPC Documents/Devices/ForceLink"   # where MPC 3.10 looks for user controller scripts
 
 case "${1:-status}" in
+boot)     # once per boot, from Addin Restore (ADDIN_BOOT in addin.manifest; 1.3.0+): the /run state that is not a drop-in.
+          # In link over USB that is flsurf's unit. Addin Restore already restarts MPC when the shim was missing, so no restart.
+    if [ -f "$K/b.conf" ] && usb_mode; then usb_on && echo "boot: flsurf unit started (USB mode)"; else echo "boot: nothing to start"; fi ;;
 switch)   # from the MAIN + MENU setup switch (addin, flsurf): only acts if the setup differs
     want=$2; [ "$want" = b ] && want=link             # older name
     case "$want" in stock|link|toggle) ;; *) echo "usage: $0 switch stock|link|toggle"; exit 2 ;; esac
@@ -92,5 +95,5 @@ status)
     echo "usb mode: $(usb_mode && echo on || echo off), flsurf unit: $(systemctl is-active forcelink-flsurf 2>/dev/null || true)"
     echo "mode: $m (home $(cat "$K/home.conf" 2>/dev/null || echo none), Force $(cat "$K/b.conf" 2>/dev/null || echo -))"
     grep -E "link|bridge" /tmp/forcespoof.log 2>/dev/null | tail -n 4 || true ;;
-*) echo "usage: $0 link|stock|capture|status|switch stock|link|toggle"; exit 2 ;;
+*) echo "usage: $0 link|stock|capture|status|boot|switch stock|link|toggle"; exit 2 ;;
 esac

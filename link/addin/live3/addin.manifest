@@ -5,4 +5,6 @@ ADDIN_NAME="forcelink (Live III)"
 ADDIN_SO=forcespoof.so
 ADDIN_CONF=""
 ADDIN_FILES=""
+# Addin Restore 1.3.0+ runs `sh link.sh boot` once per boot (starts flsurf in USB link mode; boot.sh did this from the stick)
+ADDIN_BOOT=link.sh
 ADDIN_DONE="forcelink: hold MAIN + MENU until MENU blinks, then press MENU to switch the Force between stock and link."

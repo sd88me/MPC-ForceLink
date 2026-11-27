@@ -585,3 +585,24 @@ in `ForceLink.lua` (`BYNAME` journal lines), on the current track `Plugin 001` (
   are small indices, but which index is "Force Link" is unknown. Next: set a track's input to Force Link by hand in
   MPC, read `GetTrackInputPort(name)`, and check the index stays the same across restarts. Also map the monitor values
   (2 seen; 0 set) to MPC's monitor menu, and whether channel 0 = All or channel 1. Track names need not be unique.
+
+## 35. A controller script can load native code: `package.loadlib` (device, Live III, MPC 3.10.1.8 and 3.10.1.12)
+OpenMPC's **Addin Restore** (open-mpc/mpc-vst-plugins `tools/mpc_patch/addin_restore`) and its Plugin Manager background
+server are built on this, and run on every boot of the Live III here:
+- In MPC's Lua VM `io` and `os` are **nil**, but `package.loadlib(path, symbol)` **works**: it dlopens a native library
+  (aarch64 on Gen2) into the MPC process and returns a C function (a `lua_CFunction`) the script calls. `debug.getinfo(1, "S")`
+  gives the script's own path, so the library can sit next to it.
+- The native code runs inside MPC as MPC's user (root): it can read and write files, `fork`, and run commands. Addin
+  Restore writes `/run` systemd drop-ins and restarts MPC; the Plugin Manager server starts a daemon. Anything spawned
+  from inside MPC is in MPC's cgroup and dies when MPC restarts: start long-lived work with `systemd-run --unit=… --collect`.
+- The signed checksum covers the `.lua` only, so the library can change without re-signing.
+- A device script **needs no `input=`/`output=` lines**: Addin Restore's `.ini` has only `device`, `manufacturer`,
+  `script`, `scriptVersion`, `checksum`, and its main chunk runs at every MPC start (journal `[addin-restore] script loaded`).
+  So a script can be a boot hook with no controller at all.
+- Consequence: several "no from Lua" walls (USB access, state dump, reading MPC's memory) have a way round from a
+  device script: a loadlib'd library, with the same power and the same risks as an LD_PRELOAD shim (a crash takes MPC
+  down; offsets per build), but no stick, SSH or root setup to install once the files are on internal storage.
+- 2026-11-27: force-link's Live III side lost its boot step when the Live III moved from the boot stick to Addin
+  Restore (the stick ran `forcespoof/boot.sh`). Addin Restore 1.3.0 (branch `addin-restore-boot-hooks`) adds
+  `ADDIN_BOOT=<file>` in an addin's `addin.manifest`: `sh <file> boot` once per boot; forcelink's `link.sh boot` starts
+  flsurf's unit in USB link mode.
