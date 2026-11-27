@@ -61,6 +61,7 @@ aperture.ToGlobalColumn = function(c) return c end
 aperture.ToGlobalRow = function(r) return r end
 aperture.CanMoveUp, aperture.CanMoveDown = prop(false), prop(true)
 aperture.CanMoveLeft, aperture.CanMoveRight = prop(false), prop(false)
+createdClips = {}
 local function colour(c, r) return clips[c] and clips[c][r] and clips[c][r].Colour.value or 0 end
 mpc = {
     clipMatrix = {
@@ -69,11 +70,16 @@ mpc = {
         ClipIsPlaying = function(c, r) return clips[c][r].State.value == 2 end,
         ClipIsRecording = function() return false end,
         ClipIsStopped = function(c, r) return clips[c][r].State.value == 0 end,
+        DeleteClip = function(c, r) calls[#calls + 1] = "DeleteClip " .. c .. "," .. r end,
+        CreateClip = function(c, r) createdClips[#createdClips + 1] = c .. "," .. r; return true end,
+        CopyClip = function(a, b, c, d) calls[#calls + 1] = "CopyClip " .. a .. "," .. b .. "," .. c .. "," .. d end,
     },
     controlSurface = {qlinks = qlinks, pads = mpcPads, stepSequencer = stepSequencer},
     sequencer = {Playing = prop(false), TogglePlay = function() calls[#calls + 1] = "TogglePlay" end,
                  Record = function() calls[#calls + 1] = "Record" end},
     ui = {ShowTUIFeedback = function(t) calls[#calls + 1] = "TUI " .. t end},
+    force = {copy = {Press = function() calls[#calls + 1] = "force.copy Press" end, Release = function() end},
+             delete = {Press = function() calls[#calls + 1] = "force.delete Press" end, Release = function() end}},
 }
 
 dofile("ForceLink.lua")
@@ -95,6 +101,30 @@ check("OLED 1 shows the Live III's knob 1 of bank 1 (Q-link 12)", has(sent, stri
 sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)            -- pad row 1 col 0
 check("pad press triggers clip (0,1)", has(calls, "TriggerClip 0,1"))
+sent, calls = {}, {}
+ForceLink.HandleMIDINoteOn(0, 0x26, 127); ForceLink.HandleMIDINoteOn(9, 54 + 8, 127); ForceLink.HandleMIDINoteOff(0, 0x26, 0)
+check("DELETE + pad deletes the clip, no launch", has(calls, "DeleteClip 0,1") and not has(calls, "TriggerClip"))
+sent, calls = {}, {}
+ForceLink.HandleMIDINoteOn(0, 0x7A, 127)
+ForceLink.HandleMIDINoteOn(9, 54 + 9, 127)            -- empty slot: no source
+check("COPY + empty slot: no source", has(calls, "TUI Copy: no clip there") and not has(calls, "CopyClip"))
+ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)            -- clip (0,1): source
+ForceLink.HandleMIDINoteOn(9, 54 + 16 + 3, 127)       -- slot (3,2)
+ForceLink.HandleMIDINoteOn(9, 54 + 16 + 4, 127)       -- slot (4,2): source stays
+check("COPY: source then two targets", has(calls, "CopyClip 0,1,3,2") and has(calls, "CopyClip 0,1,4,2") and not has(calls, "TriggerClip"))
+ForceLink.HandleMIDINoteOff(0, 0x7A, 0)
+sent, calls = {}, {}
+ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)
+check("after COPY released: pad launches again", has(calls, "TriggerClip 0,1") and not has(calls, "CopyClip"))
+sent, calls = {}, {}
+sent, calls = {}, {}
+createdClips = {}
+ForceLink.HandleMIDINoteOn(9, 54 + 5 * 8 + 6, 127)    -- empty slot (6,5)
+check("MATRIX: empty slot creates a clip, no launch", createdClips[#createdClips] == "6,5" and has(calls, "TUI Clip created") and not has(calls, "TriggerClip"))
+sent, calls = {}, {}
+ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)            -- filled slot still launches
+check("MATRIX: filled slot still launches", has(calls, "TriggerClip 0,1"))
+sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(0, 56 + 2, 127)            -- row launch 3
 check("row launch 3 triggers row 2", has(calls, "TriggerRow 2"))
 ForceLink.HandleMIDINoteOn(0, 0x31, 127); ForceLink.HandleMIDINoteOn(0, 0x71, 127); ForceLink.HandleMIDINoteOff(0, 0x31, 0)

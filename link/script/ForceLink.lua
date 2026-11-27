@@ -44,10 +44,15 @@ local function selectInMpc(idx)
 end
 local LOWER = {mute = "mute", solo = "solo", recArm = "arm", clipStop = "clipStop"}
 local heldBtn = {}      -- MPC does not tell scripts which button lights it would show: dim = available, bright while held
+-- MATRIX: hold DELETE and tap a clip = delete it; hold COPY, tap a clip (source), then tap slots = copy it there (the source stays
+-- until COPY is released). MPC's own COPY / DELETE presses are still passed on, but the pads are the script's, so it does the
+-- edit itself with clipMatrix.DeleteClip / CopyClip (the same calls the Move script uses on a Live II).
+local copySrc            -- {col, row} global, while COPY is held
 local function pass(note, down)
     local c = PASS[note] and mpc.force and mpc.force[PASS[note]]
     if not c then return false end
     heldBtn[note] = down or nil
+    if note == 0x7A and not down then copySrc = nil end
     if down and LOWER[PASS[note]] then lowerMode = LOWER[PASS[note]] end
     setLed(note, down and 3 or 1)
     local f = down and c.Press or c.Release
@@ -1353,7 +1358,7 @@ end
 
 -- FINDINGS 34 follow-up: which GetTrackInputPort number is which port. Every 2 s, logs each track's input
 -- port / channel / monitor state (by name) when the set changes. Read-only: one call per value, up to 16 tracks.
-local PROBE_PORTS = false -- done: FINDINGS 34 (Force Link = -809768406, stable)
+local PROBE_PORTS = true -- watcher on for the routing test; was done: FINDINGS 34 (Force Link = -809768406, stable)
 local portsLast
 local function probePorts()
     local t = mpc.tracks
@@ -1370,6 +1375,34 @@ local function probePorts()
     end
     local line = table.concat(parts, " | ")
     if line ~= portsLast then portsLast = line; print("ForceLink: PORTS " .. line) end
+end
+
+-- FINDINGS 34 routing test (2026-11-22): can a script route the Force to a track that is NOT current?
+-- SHIFT + CLIP (MATRIX): first press sets track 2's input to the Force Link port (ID from FINDINGS 34), channel 0,
+-- monitor 0; each later press steps track 2's monitor state 0 -> 1 -> 2 -> 3 -> 0. Shown on the Live III's screen.
+local ROUTE_TEST = true
+local FORCE_LINK_PORT = -809768406
+local routeMon
+local function routeTest()
+    local t = mpc.tracks
+    local tr = t.normalTracks and t.normalTracks[1]
+    local name = tr and tr.Name and tr.Name.value
+    if type(name) ~= "string" or name == "" then mpc.ui.ShowTUIFeedback("Route test: no track 2"); return end
+    if routeMon == nil then
+        local before = {t.GetTrackInputPort(name), t.GetTrackInputChannel(name), t.GetTrackMonitorState(name)}
+        print("ForceLink: ROUTE track 2 '" .. name .. "' before in=" .. tostring(before[1]) .. " ch=" .. tostring(before[2])
+              .. " mon=" .. tostring(before[3]))
+        t.SetTrackInputPort(name, FORCE_LINK_PORT)
+        t.SetTrackInputChannel(name, 0)
+        routeMon = 0
+    else
+        routeMon = (routeMon + 1) % 4
+    end
+    t.SetTrackMonitorState(name, routeMon)
+    local msg = string.format("Route test: track 2 in=%s ch=%s mon=%s", tostring(t.GetTrackInputPort(name)),
+        tostring(t.GetTrackInputChannel(name)), tostring(t.GetTrackMonitorState(name)))
+    print("ForceLink: ROUTE " .. msg)
+    mpc.ui.ShowTUIFeedback(msg)
 end
 
 function ForceLink.HandleMIDINoteOn(channel, note, velocity)
@@ -1389,6 +1422,33 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
             local echo = echoTick ~= nil and ticks - echoTick <= 2 and (i == echoHit or i == echoHit + 1)
             print(string.format("ForceLink: ch9 note %d (pad %d) velocity %d%s", note, i, velocity, echo and " [echo of our press, ignored]" or ""))
             if velocity > 0 and not echo then stepPadPressed(i, velocity) end
+        elseif aperture and mode == "matrix" and velocity > 0 and (heldBtn[0x26] or heldBtn[0x7A]) and mpc.clipMatrix then
+            local gc, gr = globalPos(i % 8, math.floor(i / 8))
+            local cm = mpc.clipMatrix
+            local function tui(t) if mpc.ui and mpc.ui.ShowTUIFeedback then pcall(mpc.ui.ShowTUIFeedback, t) end end
+            if heldBtn[0x26] then
+                local ok, err = pcall(cm.DeleteClip, gc, gr)
+                print("ForceLink: DeleteClip(" .. gc .. "," .. gr .. ") -> " .. tostring(ok) .. " " .. tostring(err))
+                tui(ok and "Clip deleted" or "Delete failed")
+            elseif not copySrc then
+                if cm.HasClip and pcall(cm.HasClip, gc, gr) and cm.HasClip(gc, gr) then
+                    copySrc = {gc, gr}
+                    tui("Copy: tap a slot")
+                else tui("Copy: no clip there") end
+            else
+                local ok, err = pcall(cm.CopyClip, copySrc[1], copySrc[2], gc, gr)
+                print("ForceLink: CopyClip(" .. copySrc[1] .. "," .. copySrc[2] .. " -> " .. gc .. "," .. gr .. ") -> " .. tostring(ok) .. " " .. tostring(err))
+                tui(ok and "Clip copied" or "Copy failed")
+            end
+        elseif aperture and mode == "matrix" and velocity > 0 and mpc.clipMatrix and mpc.clipMatrix.CreateClip
+               and mpc.clipMatrix.HasClip and (function() local g1, g2 = globalPos(i % 8, math.floor(i / 8))
+                   local okh, has = pcall(mpc.clipMatrix.HasClip, g1, g2); return okh and has == false end)() then
+            -- MATRIX: tapping an empty slot makes an empty clip there and selects it (nothing to launch)
+            local gc, gr = globalPos(i % 8, math.floor(i / 8))
+            local ok, err = pcall(mpc.clipMatrix.CreateClip, gc, gr)
+            print("ForceLink: empty slot " .. gc .. "," .. gr .. ": CreateClip -> " .. tostring(ok) .. " " .. tostring(err))
+            if ok and err ~= false then call(mpc.clipMatrix.SelectClip, gc, gr) end
+            if mpc.ui and mpc.ui.ShowTUIFeedback then pcall(mpc.ui.ShowTUIFeedback, ok and "Clip created" or "Create failed") end
         elseif aperture then
             aperture.TriggerClip(i % 8, math.floor(i / 8))
         end
@@ -1424,7 +1484,7 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
         elseif note == BTN.undo then                          -- UNDO; SHIFT + UNDO = redo
             local cm = mpc.commandManager
             if cm then call(shift and cm.Redo or cm.Undo) end
-        elseif note == 0x09 and shift then do local okp, ep = pcall(probeIndependence); print("ForceLink: INDEP probe: " .. tostring(okp) .. " " .. tostring(ep)) end
+        elseif note == 0x09 and shift then do local okp, ep = pcall(ROUTE_TEST and routeTest or probeIndependence); print("ForceLink: SHIFT+CLIP probe: " .. tostring(okp) .. " " .. tostring(ep)) end
         elseif note == BTN.tap and shift then                 -- SHIFT + TAP TEMPO: metronome on/off
             local sq = mpc.sequencer
             if sq.SetMetronomeEnabled and sq.MetronomeEnabled then call(sq.SetMetronomeEnabled, not sq.MetronomeEnabled.value) end
