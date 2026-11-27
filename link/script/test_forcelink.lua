@@ -118,13 +118,6 @@ ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)
 check("after COPY released: pad launches again", has(calls, "TriggerClip 0,1") and not has(calls, "CopyClip"))
 sent, calls = {}, {}
 sent, calls = {}, {}
-createdClips = {}
-ForceLink.HandleMIDINoteOn(9, 54 + 5 * 8 + 6, 127)    -- empty slot (6,5)
-check("MATRIX: empty slot creates a clip, no launch", createdClips[#createdClips] == "6,5" and has(calls, "TUI Clip created") and not has(calls, "TriggerClip"))
-sent, calls = {}, {}
-ForceLink.HandleMIDINoteOn(9, 54 + 8, 127)            -- filled slot still launches
-check("MATRIX: filled slot still launches", has(calls, "TriggerClip 0,1"))
-sent, calls = {}, {}
 ForceLink.HandleMIDINoteOn(0, 56 + 2, 127)            -- row launch 3
 check("row launch 3 triggers row 2", has(calls, "TriggerRow 2"))
 ForceLink.HandleMIDINoteOn(0, 0x31, 127); ForceLink.HandleMIDINoteOn(0, 0x71, 127); ForceLink.HandleMIDINoteOff(0, 0x31, 0)

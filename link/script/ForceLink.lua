@@ -1440,15 +1440,6 @@ function ForceLink.HandleMIDINoteOn(channel, note, velocity)
                 print("ForceLink: CopyClip(" .. copySrc[1] .. "," .. copySrc[2] .. " -> " .. gc .. "," .. gr .. ") -> " .. tostring(ok) .. " " .. tostring(err))
                 tui(ok and "Clip copied" or "Copy failed")
             end
-        elseif aperture and mode == "matrix" and velocity > 0 and mpc.clipMatrix and mpc.clipMatrix.CreateClip
-               and mpc.clipMatrix.HasClip and (function() local g1, g2 = globalPos(i % 8, math.floor(i / 8))
-                   local okh, has = pcall(mpc.clipMatrix.HasClip, g1, g2); return okh and has == false end)() then
-            -- MATRIX: tapping an empty slot makes an empty clip there and selects it (nothing to launch)
-            local gc, gr = globalPos(i % 8, math.floor(i / 8))
-            local ok, err = pcall(mpc.clipMatrix.CreateClip, gc, gr)
-            print("ForceLink: empty slot " .. gc .. "," .. gr .. ": CreateClip -> " .. tostring(ok) .. " " .. tostring(err))
-            if ok and err ~= false then call(mpc.clipMatrix.SelectClip, gc, gr) end
-            if mpc.ui and mpc.ui.ShowTUIFeedback then pcall(mpc.ui.ShowTUIFeedback, ok and "Clip created" or "Create failed") end
         elseif aperture then
             aperture.TriggerClip(i % 8, math.floor(i / 8))
         end
